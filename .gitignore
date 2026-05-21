@@ -1,0 +1,19 @@
+# Local Environment Config (SENSITIVE)
+.env
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# IDE / Project Configs
+.vscode/
+.idea/
+.claude/
+.gemini/
+
+# System Generated Logs
+.system_generated/
+tasks/
