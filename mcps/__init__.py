@@ -92,15 +92,45 @@ def execute_mcp(name: str, **kwargs) -> str:
         try:
             import json
             result = func(**kwargs)
-            if not isinstance(result, str):
-                return json.dumps(result, ensure_ascii=False)
-            return result
+            if isinstance(result, str):
+                try:
+                    result_data = json.loads(result)
+                except Exception:
+                    return json.dumps({
+                        "success": True,
+                        "data": result,
+                        "error": None,
+                        "error_type": None
+                    }, ensure_ascii=False)
+            else:
+                result_data = result
+
+            if isinstance(result_data, dict):
+                result_data.setdefault("success", True)
+                result_data.setdefault("error", None)
+                result_data.setdefault("error_type", None)
+                return json.dumps(result_data, ensure_ascii=False)
+
+            return json.dumps({
+                "success": True,
+                "data": result_data,
+                "error": None,
+                "error_type": None
+            }, ensure_ascii=False)
         except Exception as e:
             import json
-            return json.dumps({"success": False, "error": f"Error executing MCP {name}: {str(e)}"}, ensure_ascii=False)
+            return json.dumps({
+                "success": False,
+                "error": f"Error executing MCP {name}: {str(e)}",
+                "error_type": type(e).__name__
+            }, ensure_ascii=False)
             
     import json
-    return json.dumps({"success": False, "error": f"MCP {name} not found in registry"}, ensure_ascii=False)
+    return json.dumps({
+        "success": False,
+        "error": f"MCP {name} not found in registry",
+        "error_type": "MCPNotFound"
+    }, ensure_ascii=False)
 
 
 # 导入所有 MCP 以自动注册

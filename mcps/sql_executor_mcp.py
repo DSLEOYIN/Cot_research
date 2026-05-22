@@ -5,7 +5,9 @@ SQL执行器 MCP
 """
 
 import json
+import re
 from typing import TypedDict, Literal
+from app_config import get_config, require_real_mode_config
 from mcps import register_mcp
 
 
@@ -46,70 +48,86 @@ def sql_executor(
         return json.dumps({
             "success": False,
             "error": "SQL 查询参数为空或非字符串",
-            "error_type": "ArgumentError"
+            "error_type": "ArgumentError",
+            "data": None,
+            "row_count": None
         }, ensure_ascii=False)
 
-    forbidden_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'TRUNCATE', 'CREATE', 'GRANT', 'REVOKE']
+    config = get_config(db_uri)
+    validation_error = validate_select_sql(query, config.database.allowed_tables)
+    if validation_error:
+        return json.dumps({
+            "success": False,
+            "error": validation_error,
+            "error_type": "SecurityError",
+            "data": None,
+            "row_count": None
+        }, ensure_ascii=False)
+
     query_upper = query.strip().upper()
 
-    for keyword in forbidden_keywords:
-        if keyword in query_upper:
-            return json.dumps({
-                "success": False,
-                "error": f"禁止执行危险SQL: 包含 {keyword} 关键字",
-                "error_type": "SecurityError"
-            }, ensure_ascii=False)
+    if config.mock_enabled:
+        mock_rows = [
+            {"区域": "中东公司", "指标": "终端量", "本月数量": 1280, "同比": "12.4%"},
+            {"区域": "中东公司", "指标": "批发量", "本月数量": 1460, "同比": "9.8%"},
+        ]
+        columns = list(mock_rows[0].keys())
+        if format == "json":
+            output = json.dumps({"columns": columns, "rows": mock_rows, "row_count": len(mock_rows)}, ensure_ascii=False)
+        else:
+            md_lines = [
+                "| " + " | ".join(columns) + " |",
+                "| " + " | ".join(["---"] * len(columns)) + " |",
+            ]
+            for row in mock_rows:
+                md_lines.append("| " + " | ".join(str(row.get(col, "")) for col in columns) + " |")
+            output = "\n".join(md_lines)
 
-    # Load environment variables from .env if available
-    import os
-    # Try multiple paths for .env
-    for path in [".env", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")]:
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            key, value = line.split("=", 1)
-                            os.environ[key.strip()] = value.strip()
-            except Exception:
-                pass
+        return json.dumps({
+            "success": True,
+            "data": output,
+            "error": None,
+            "error_type": None,
+            "row_count": len(mock_rows),
+            "mock": True
+        }, ensure_ascii=False)
 
-    # 从环境变量解析或使用 db_uri
-    if not db_uri:
-        db_user = os.getenv("DB_USER", "aiwork")
-        db_password = os.getenv("DB_PASSWORD", "I!p0P(FZZt")
-        db_host = os.getenv("DB_HOST", "10.30.16.21")
-        db_port = int(os.getenv("DB_PORT", "6033"))
-        db_name = os.getenv("DB_NAME", "ads_international")
-    else:
-        try:
-            db_user = db_uri.split('://')[1].split(':')[0] if '://' in db_uri else 'root'
-            db_password = db_uri.split(':')[2].split('@')[0] if len(db_uri.split(':')) > 2 else ''
-            db_host = db_uri.split('@')[1].split('/')[0].split(':')[0] if '@' in db_uri else 'localhost'
-            db_port = int(db_uri.split(':')[-1].split('/')[0]) if ':' in db_uri else 3306
-            db_name = db_uri.split('/')[-1] if '/' in db_uri else ''
-        except Exception:
-            db_user, db_password, db_host, db_port, db_name = "aiwork", "I!p0P(FZZt", "10.30.16.21", 6033, "ads_international"
+    config_error = require_real_mode_config(config, need_db=True)
+    if config_error:
+        return json.dumps({
+            "success": False,
+            "data": None,
+            "error": config_error,
+            "error_type": "ConfigurationError",
+            "row_count": None
+        }, ensure_ascii=False)
+
+    db = config.database
 
     # 执行查询
     try:
         import pymysql
 
         connection = pymysql.connect(
-            host=db_host,
-            port=db_port,
-            user=db_user,
-            password=db_password,
-            database=db_name,
-            charset='utf8mb4'
+            host=db.host,
+            port=db.port,
+            user=db.user,
+            password=db.password,
+            database=db.name,
+            charset=db.charset,
+            connect_timeout=db.connect_timeout,
+            read_timeout=db.read_timeout,
+            write_timeout=db.write_timeout
         )
 
         with connection.cursor(pymysql.cursors.DictCursor) as cursor:
             cursor.execute(query)
 
             if query_upper.strip().startswith('SELECT'):
-                results = cursor.fetchall()
+                results = cursor.fetchmany(config.database.max_rows + 1)
+                truncated = len(results) > config.database.max_rows
+                if truncated:
+                    results = results[:config.database.max_rows]
                 columns = list(results[0].keys()) if results else []
 
                 if format == "json":
@@ -127,23 +145,73 @@ def sql_executor(
                 return json.dumps({
                     "success": True,
                     "data": output,
-                    "row_count": len(results)
+                    "error": None,
+                    "error_type": None,
+                    "row_count": len(results),
+                    "truncated": truncated,
+                    "max_rows": config.database.max_rows
                 }, ensure_ascii=False)
             else:
-                connection.commit()
                 return json.dumps({
-                    "success": True,
-                    "affected_rows": cursor.rowcount,
-                    "message": "执行成功"
+                    "success": False,
+                    "data": None,
+                    "error": "只支持 SELECT 查询",
+                    "error_type": "SecurityError",
+                    "row_count": None
                 }, ensure_ascii=False)
 
     except Exception as e:
         error_type = type(e).__name__
         return json.dumps({
             "success": False,
+            "data": None,
             "error": str(e),
-            "error_type": error_type
+            "error_type": error_type,
+            "row_count": None
         }, ensure_ascii=False)
+
+
+def validate_select_sql(query: str, allowed_tables: tuple[str, ...]) -> str | None:
+    statements = _split_sql_statements(query)
+    if len(statements) != 1:
+        return "只允许执行单条 SELECT SQL"
+
+    statement = statements[0].strip().rstrip(";")
+    if not statement.upper().startswith("SELECT"):
+        return "只支持 SELECT 查询"
+
+    forbidden_keywords = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE"]
+    for keyword in forbidden_keywords:
+        if re.search(rf"\b{keyword}\b", statement, flags=re.IGNORECASE):
+            return f"禁止执行危险SQL: 包含 {keyword} 关键字"
+
+    referenced_tables = extract_table_names(statement)
+    if allowed_tables and "*" not in allowed_tables:
+        disallowed = sorted(table for table in referenced_tables if table.lower() not in allowed_tables)
+        if disallowed:
+            return f"SQL 引用了未加入白名单的表: {', '.join(disallowed)}"
+
+    return None
+
+
+def _split_sql_statements(query: str) -> list[str]:
+    try:
+        import sqlparse
+
+        return [statement for statement in sqlparse.split(query) if statement.strip()]
+    except Exception:
+        return [statement for statement in query.split(";") if statement.strip()]
+
+
+def extract_table_names(query: str) -> set[str]:
+    table_names: set[str] = set()
+    pattern = re.compile(r"\b(?:FROM|JOIN)\s+([`\"\[]?[\w.]+[`\"\]]?)", re.IGNORECASE)
+    for match in pattern.finditer(query):
+        raw_name = match.group(1).strip("`\"[]")
+        if raw_name.startswith("("):
+            continue
+        table_names.add(raw_name.split(".")[-1].lower())
+    return table_names
 
 
 MCP_CONFIG = {
@@ -172,7 +240,9 @@ MCP_CONFIG = {
     },
     "security_rules": {
         "forbidden_operations": ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE"],
-        "allowed_operations": ["SELECT"]
+        "allowed_operations": ["SELECT"],
+        "table_whitelist_env": "DB_ALLOWED_TABLES",
+        "max_rows_env": "SQL_MAX_ROWS"
     },
     "examples": [
         {

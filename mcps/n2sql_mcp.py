@@ -6,6 +6,7 @@ N2SQL MCP
 
 import json
 from typing import TypedDict
+from app_config import get_config, require_real_mode_config
 from mcps import register_mcp
 
 
@@ -81,25 +82,41 @@ SQL："""
 
     try:
         import httpx
-        import os
 
-        api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
-        base_url = "https://api.deepseek.com/chat/completions"
+        config = get_config()
+        if config.mock_enabled:
+            return json.dumps({
+                "success": True,
+                "sql": _mock_sql(query),
+                "original_query": query,
+                "error": None,
+                "mock": True
+            }, ensure_ascii=False)
+
+        config_error = require_real_mode_config(config, need_model=True)
+        if config_error:
+            return json.dumps({
+                "success": False,
+                "sql": None,
+                "original_query": query,
+                "error": config_error,
+                "error_type": "ConfigurationError"
+            }, ensure_ascii=False)
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
+            "Authorization": f"Bearer {config.model.api_key}"
         }
 
         payload = {
-            "model": "deepseek-chat",
+            "model": config.model.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,
             "max_tokens": 2048
         }
 
         with httpx.Client(timeout=60.0) as client:
-            response = client.post(base_url, headers=headers, json=payload)
+            response = client.post(config.model.base_url, headers=headers, json=payload)
             response.raise_for_status()
             result = response.json()
 
@@ -118,15 +135,46 @@ SQL："""
             return json.dumps({
                 "success": True,
                 "sql": sql,
-                "original_query": query
+                "original_query": query,
+                "error": None
             }, ensure_ascii=False)
 
     except Exception as e:
         return json.dumps({
             "success": False,
             "sql": None,
-            "error": str(e)
+            "error": str(e),
+            "error_type": type(e).__name__
         }, ensure_ascii=False)
+
+
+def _mock_sql(query: str) -> str:
+    if any(keyword in query for keyword in ["同比", "环比", "增长"]):
+        return (
+            "SELECT area_name AS '区域', "
+            "SUM(terminal_qty) AS '本月终端量', "
+            "ROUND(12.4, 2) AS '同比增长率' "
+            "FROM v_dm_sal_wolesale_terminal_dly "
+            "WHERE area_name = '中东公司' "
+            "GROUP BY area_name"
+        )
+
+    if any(keyword in query for keyword in ["库存", "存货"]):
+        return (
+            "SELECT area_name AS '区域', SUM(stock_qty) AS '库存量' "
+            "FROM v_dm_sal_stock_dly "
+            "WHERE area_name = '中东公司' "
+            "GROUP BY area_name"
+        )
+
+    return (
+        "SELECT area_name AS '区域', "
+        "SUM(terminal_qty) AS '终端量', "
+        "SUM(wholesale_qty) AS '批发量' "
+        "FROM v_dm_sal_wolesale_terminal_dly "
+        "WHERE area_name = '中东公司' "
+        "GROUP BY area_name"
+    )
 
 
 MCP_CONFIG = {

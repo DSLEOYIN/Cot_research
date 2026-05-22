@@ -171,7 +171,7 @@ workflow:
     selector:
     - conversation
     - db_url_new
-    value: mysql+pymysql://aiwork:I!p0P(FZZt@10.30.16.21:6033/ads_international
+    value: ${DB_URI}
     value_type: string
   - description: sql 查询结果
     id: f7e72c1f-5b64-4ab9-a866-bbecda6e900d

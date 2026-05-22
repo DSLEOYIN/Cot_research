@@ -10,6 +10,7 @@ import os
 import re
 from typing import TypedDict, Sequence, Literal, Any
 from dataclasses import dataclass
+from app_config import get_config
 
 # Import registered MCPs and Skills
 from mcps import execute_mcp, list_mcps
@@ -85,13 +86,15 @@ class AgentState(TypedDict):
 
 class DeepSeekLLM:
     def __init__(self, api_key: str = None, base_url: str = "https://api.deepseek.com"):
-        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
+        config = get_config()
+        self.api_key = api_key or config.model.api_key
         self.base_url = base_url
+        self.model = config.model.model
 
     def invoke(self, messages: list) -> dict:
         import httpx
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
-        payload = {"model": "deepseek-chat", "messages": messages, "temperature": 0.2, "max_tokens": 2048}
+        payload = {"model": self.model, "messages": messages, "temperature": 0.2, "max_tokens": 2048}
 
         with httpx.Client(timeout=60.0) as client:
             response = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
@@ -140,11 +143,11 @@ def step1_select_skill(state: AgentState) -> AgentState:
     full_messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_question}]
 
     try:
-        api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
-        if not api_key:
+        config = get_config()
+        if config.mock_enabled or not config.model.api_key:
             return mock_select_skill(state)
 
-        llm = DeepSeekLLM(api_key=api_key)
+        llm = DeepSeekLLM(api_key=config.model.api_key)
         response = llm.invoke(full_messages)
         content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception as e:
@@ -268,6 +271,31 @@ def step2_run_workflow(state: AgentState) -> AgentState:
 
         thought_process.append(step_thought)
 
+        if isinstance(result_data, dict) and result_data.get("success") is False:
+            error_message = result_data.get("error") or "MCP 执行失败"
+            error_type = result_data.get("error_type") or "MCPError"
+            final_answer = f"工作流已中断：步骤 {step_num} [{step_name}] 调用 {mcp_name} 失败。错误类型：{error_type}。错误信息：{error_message}"
+            thought_process.append({
+                "step": step_num + 2,
+                "step_type": "workflow_error",
+                "decision": "关键 MCP 失败，工作流已中断",
+                "final_answer": final_answer,
+                "error": error_message,
+                "error_type": error_type,
+                "failed_step": step_name,
+                "failed_mcp": mcp_name,
+            })
+            return {
+                **state,
+                "messages": messages + [{"role": "assistant", "content": final_answer}],
+                "selected_mcp": mcp_name,
+                "mcp_input": resolved_args,
+                "mcp_result": result_str,
+                "thought_process": thought_process,
+                "step_type": "workflow_execution",
+                "is_final": True
+            }
+
     # Extract final answer from the last step
     final_answer = ""
     try:
@@ -319,7 +347,8 @@ def mock_select_skill(state: AgentState) -> AgentState:
 
     # Check keyword patterns
     q_lower = user_question.lower()
-    if any(k in q_lower for k in ["多少", "销量", "库存", "订单", "排产", "达成", "最好"]):
+    data_keywords = ["销量", "终端量", "批发量", "库存", "订单", "排产", "达成", "销售", "国家", "大区", "公司"]
+    if any(k in q_lower for k in data_keywords):
         if any(k in q_lower for k in ["同比", "环比", "增长"]):
             selected_skill = "yoy_yoy_analysis"
             reason += " 检测到业务指标及同比/环比关键词，路由至[同环比分析]技能。"

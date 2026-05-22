@@ -16,6 +16,7 @@ import os
 from langgraph_cot import run_agent
 from skills import list_skills
 from mcps import list_mcps
+from app_config import get_config
 
 # ==================== Page Configuration & Styling ====================
 st.set_page_config(
@@ -94,7 +95,11 @@ with st.sidebar:
         os.environ["OPENAI_API_KEY"] = api_key
         st.success("✅ 凭证载入成功")
     else:
-        st.warning("⚠️ 缺省 API Key 将自动启用 Mock 路由规则")
+        st.warning("⚠️ 缺省 API Key 将使用 Mock 模式")
+
+    app_mode = st.selectbox("运行模式", ["mock", "real"], index=0 if get_config().mock_enabled else 1)
+    os.environ["APP_MODE"] = app_mode
+    os.environ["MOCK_ENABLED"] = "true" if app_mode == "mock" else "false"
 
     st.markdown("---")
 
@@ -166,7 +171,8 @@ if st.button("🚀 启动双层 SOP 决策", type="primary") and question:
             thought_process = result.get("thought_process", [])
             selected_skill = result.get("selected_skill")
             selected_mcp = result.get("selected_mcp")
-            is_mocked = not (os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY"))
+            is_mocked = get_config().mock_enabled
+            has_error = any(s.get("step_type") == "workflow_error" for s in thought_process)
 
             # Metrics / Result Summary Overview
             st.markdown("### 🎯 SOP 执行总览")
@@ -178,7 +184,7 @@ if st.button("🚀 启动双层 SOP 决策", type="primary") and question:
             with sum_col3:
                 st.metric("总执行步骤数", f"{len(thought_process)} 步")
             with sum_col4:
-                st.metric("运行状态", "成功", delta_color="normal")
+                st.metric("运行状态", "失败" if has_error else "成功", delta_color="normal")
 
             st.divider()
 
@@ -252,6 +258,10 @@ if st.button("🚀 启动双层 SOP 决策", type="primary") and question:
                     decision_str = step.get("decision", "")
                     title = f"第二层 SOP 步骤 {step_num-1}: {decision_str}"
                     status_type = "success"
+                elif step_type == "workflow_error":
+                    icon = "❌"
+                    title = "工作流中断 (Workflow Error)"
+                    status_type = "error"
                 elif step_type == "final_answer":
                     icon = "✅"
                     title = "第三层：输出生成与口径对齐 (Final Interpretation)"

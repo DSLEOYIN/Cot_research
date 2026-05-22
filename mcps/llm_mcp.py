@@ -7,6 +7,7 @@ LLM 调用 MCP
 import json
 import os
 from typing import TypedDict, Literal, NotRequired
+from app_config import get_config, require_real_mode_config
 from mcps import register_mcp
 
 
@@ -147,10 +148,6 @@ def llm(
     Returns:
         LLM 生成的文本或结构化输出
     """
-    # 获取 API 配置
-    api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
-    base_url = "https://api.deepseek.com/chat/completions"
-
     # 如果有 prompt_type，使用对应模板
     if prompt_type and prompt_type in PROMPT_TEMPLATES:
         full_prompt = PROMPT_TEMPLATES[prompt_type].format(
@@ -168,23 +165,37 @@ def llm(
     else:
         full_prompt = prompt
 
+    config = get_config()
+    if config.mock_enabled:
+        return json.dumps(_mock_llm_response(prompt, prompt_type), ensure_ascii=False)
+
+    config_error = require_real_mode_config(config, need_model=True)
+    if config_error:
+        return json.dumps({
+            "success": False,
+            "text": None,
+            "structured_output": None,
+            "error": config_error,
+            "error_type": "ConfigurationError"
+        }, ensure_ascii=False)
+
     try:
         import httpx
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
+            "Authorization": f"Bearer {config.model.api_key}"
         }
 
         payload = {
-            "model": model,
+            "model": model or config.model.model,
             "messages": [{"role": "user", "content": full_prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens
         }
 
         with httpx.Client(timeout=60.0) as client:
-            response = client.post(base_url, headers=headers, json=payload)
+            response = client.post(config.model.base_url, headers=headers, json=payload)
             response.raise_for_status()
             result = response.json()
 
@@ -196,21 +207,81 @@ def llm(
                 return json.dumps({
                     "success": True,
                     "text": content,
-                    "structured_output": structured_output
+                    "structured_output": structured_output,
+                    "error": None
                 }, ensure_ascii=False)
             except:
                 return json.dumps({
                     "success": True,
                     "text": content,
-                    "structured_output": None
+                    "structured_output": None,
+                    "error": None
                 }, ensure_ascii=False)
 
     except Exception as e:
         return json.dumps({
             "success": False,
             "text": None,
-            "error": str(e)
+            "structured_output": None,
+            "error": str(e),
+            "error_type": type(e).__name__
         }, ensure_ascii=False)
+
+
+def _mock_llm_response(prompt: str, prompt_type: str | None) -> dict:
+    if prompt_type == "intent_classification":
+        structured_output = {"problem_type": "1", "problem_alpha": "0.92"}
+        return {
+            "success": True,
+            "text": json.dumps(structured_output, ensure_ascii=False),
+            "structured_output": structured_output,
+            "error": None,
+            "mock": True,
+        }
+
+    if prompt_type == "data_analysis":
+        return {
+            "success": True,
+            "text": "Mock 数据显示：中东公司本月终端量为 1280，批发量为 1460，整体表现稳健。终端量同比增长 12.4%，说明零售需求有明显改善。",
+            "structured_output": None,
+            "error": None,
+            "mock": True,
+        }
+
+    if prompt_type == "scope_explanation":
+        return {
+            "success": True,
+            "text": "统计中东公司本月终端量与批发量，口径为 mock 演示数据。",
+            "structured_output": None,
+            "error": None,
+            "mock": True,
+        }
+
+    if prompt_type == "yoy_analysis":
+        return {
+            "success": True,
+            "text": "Mock 同环比分析：本月终端量同比增长 12.4%，增长主要来自中东区域终端需求恢复；建议继续跟踪订单转化和库存消化节奏。",
+            "structured_output": None,
+            "error": None,
+            "mock": True,
+        }
+
+    if prompt_type == "chat":
+        return {
+            "success": True,
+            "text": "一般家用车建议每 5000 到 10000 公里或每 6 到 12 个月保养一次，具体以车辆保养手册、机油类型和实际使用环境为准。",
+            "structured_output": None,
+            "error": None,
+            "mock": True,
+        }
+
+    return {
+        "success": True,
+        "text": f"Mock LLM 已处理请求：{prompt[:120]}",
+        "structured_output": None,
+        "error": None,
+        "mock": True,
+    }
 
 
 MCP_CONFIG = {
