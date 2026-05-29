@@ -72,75 +72,182 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom minimalist premium dark styling
+# Custom minimalist premium dark styling (Gemini & ChatGPT Soft Grey Dark Theme)
 st.markdown("""
 <style>
-    /* Sleek minimalist dark styling */
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+    /* Sleek minimalist soft dark styling (Gemini Style) */
     .stApp {
-        background-color: #0b0c10;
-        color: #cfd2d6;
-        font-family: 'Inter', sans-serif;
+        background-color: #131314 !important;
+        color: #e3e3e3 !important;
+        font-family: 'Inter', 'Outfit', sans-serif !important;
     }
-    h1, h2, h3, h4 {
+    
+    /* Typography override */
+    h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
-        font-weight: 600;
-        font-family: 'Inter', sans-serif;
+        font-family: 'Outfit', sans-serif !important;
+        font-weight: 500 !important;
+        letter-spacing: -0.015em;
     }
+    
+    /* Elegant Title Gradient matching Gemini Advanced */
     .main-title {
-        font-size: 2.1rem;
-        font-weight: 700;
-        color: #ffffff !important;
+        font-size: 2.8rem !important;
+        font-weight: 600 !important;
+        background: linear-gradient(75deg, #1ba1e2, #a777e3, #f472b6) !webkit-linear-gradient(75deg, #1ba1e2, #a777e3, #f472b6) !important;
+        background: linear-gradient(75deg, #4285f4, #9b51e0, #ff8c94) !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        text-align: center;
         margin-bottom: 0.1rem;
-        text-align: center;
     }
+    
     .subtitle {
-        color: #717684;
-        font-size: 0.95rem;
-        margin-bottom: 2rem;
-        text-align: center;
+        color: #c4c7c5 !important;
+        font-size: 1.05rem !important;
+        margin-bottom: 2.5rem !important;
+        text-align: center !important;
+        font-weight: 300 !important;
     }
     
-    /* Clean sidebar overrides */
+    /* Sidebar Overrides (Gemini style panel) */
     section[data-testid="stSidebar"] {
-        background-color: #121319 !important;
-        border-right: 1px solid #1e2029 !important;
+        background-color: #1e1e1f !important;
+        border-right: 1px solid #2d2d2e !important;
+    }
+    section[data-testid="stSidebar"] * {
+        color: #c4c7c5 !important;
+    }
+    section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+        color: #ffffff !important;
     }
     
-    /* Styled HTML details tag inside expander */
+    /* Override Streamlit buttons to look like Gemini suggestion cards */
+    .stButton > button {
+        background-color: #1e1e1f !important;
+        border: 1px solid #2d2d2e !important;
+        border-radius: 16px !important;
+        color: #e3e3e3 !important;
+        padding: 1.2rem 1.1rem !important;
+        height: auto !important;
+        min-height: 86px !important;
+        text-align: left !important;
+        font-size: 0.88rem !important;
+        font-weight: 400 !important;
+        box-shadow: none !important;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        white-space: normal !important;
+        word-wrap: break-word !important;
+    }
+    .stButton > button:hover {
+        background-color: #2a2a2b !important;
+        border-color: #444746 !important;
+        color: #ffffff !important;
+        transform: translateY(-2px);
+    }
+    .stButton > button:active {
+        background-color: #202124 !important;
+        transform: translateY(0);
+    }
+    
+    /* Custom Styling for Sidebar Reset/Action Buttons */
+    section[data-testid="stSidebar"] button {
+        background-color: #2a2a2b !important;
+        border: 1px solid #3c3c3e !important;
+        border-radius: 8px !important;
+        color: #e3e3e3 !important;
+        padding: 0.4rem 0.8rem !important;
+        min-height: auto !important;
+        font-size: 0.85rem !important;
+        text-align: center !important;
+        justify-content: center !important;
+    }
+    section[data-testid="stSidebar"] button:hover {
+        background-color: #333334 !important;
+        border-color: #444746 !important;
+    }
+
+    /* Style the sidebar inputs to look like Gemini standard fields */
+    div[data-testid="stSidebar"] div[data-baseweb="select"], 
+    div[data-testid="stSidebar"] div[data-baseweb="base-input"],
+    div[data-testid="stSidebar"] input {
+        background-color: #1e1e1f !important;
+        border-radius: 8px !important;
+    }
+    
+    /* Expanders & details tags (Sleek charcoal style) */
     details {
-        background-color: #151824;
-        border: 1px solid #23273b;
-        border-radius: 6px;
-        padding: 8px 12px;
-        margin: 6px 0;
+        background-color: #1e1e1f !important;
+        border: 1px solid #2d2d2e !important;
+        border-radius: 12px !important;
+        padding: 10px 14px !important;
+        margin: 8px 0 !important;
     }
     summary {
-        color: #9061f9;
-        font-weight: 600;
+        color: #8ab4f8 !important; /* Gemini soft blue */
+        font-weight: 500 !important;
         cursor: pointer;
         outline: none;
         font-size: 0.9em;
     }
     summary:hover {
-        color: #a78bfa;
+        color: #aecbfa !important;
     }
     pre {
-        background-color: #0c0d14 !important;
-        border: 1px solid #1a1c28 !important;
-        border-radius: 4px;
-        padding: 8px !important;
-        overflow-x: auto;
+        background-color: #111112 !important;
+        border: 1px solid #2d2d2e !important;
+        border-radius: 8px !important;
+        padding: 10px !important;
     }
     
-    /* Minimalist status bar */
+    /* Streamlit expander overrides */
+    .stExpander {
+        background-color: #1e1e1f !important;
+        border: 1px solid #2d2d2e !important;
+        border-radius: 12px !important;
+        margin-bottom: 0.8rem !important;
+    }
+    .stExpander > div {
+        border: none !important;
+    }
+    
+    /* Sleek status bar for thinking */
     .status-bar-clean {
-        background-color: #13141c;
-        border: 1px solid #232533;
-        border-radius: 6px;
-        padding: 8px 14px;
-        margin-bottom: 1.2rem;
+        background-color: #1e1e1f !important;
+        border: 1px solid #2d2d2e !important;
+        border-radius: 10px !important;
+        padding: 10px 14px;
         font-size: 0.9rem;
-        color: #a0aec0;
+        color: #c4c7c5;
+    }
+    
+    /* Make the chat input container perfectly match the Gemini look */
+    div[data-testid="stChatInput"] {
+        border-radius: 28px !important;
+        background-color: #1e1e1f !important;
+        border: 1px solid #3c3c3e !important;
+        padding: 4px 10px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+    }
+    div[data-testid="stChatInput"] textarea {
+        background-color: transparent !important;
+        color: #e3e3e3 !important;
+        font-family: 'Inter', sans-serif !important;
+    }
+    
+    /* Override chat message bubble padding & backgrounds */
+    div[data-testid="stChatMessage"] {
+        background-color: transparent !important;
+        padding: 1.2rem 0.5rem !important;
+        border-bottom: 1px solid #2d2d2e !important;
+    }
+    div[data-testid="stChatMessage"]:nth-child(even) {
+        background-color: #1a1a1b !important; /* Extremely soft contrast for assistant replies */
     }
 </style>
 """, unsafe_allow_html=True)
@@ -148,7 +255,7 @@ st.markdown("""
 
 # ==================== Sidebar: Pristine & Consolidated ====================
 with st.sidebar:
-    st.markdown('<h2 style="font-size:1.5rem; margin-bottom:0.5rem; color:#ffffff;">🧠 ChatBI 场景管理</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 style="font-size:1.5rem; margin-bottom:0.5rem; color:#ffffff;">✨ ChatBI 场景管理</h2>', unsafe_allow_html=True)
     st.markdown("---")
 
     # Clear Chat History Button
@@ -253,7 +360,7 @@ if "messages" not in st.session_state:
 
 # If chat is empty, show the premium home page brand
 if len(st.session_state.messages) == 0:
-    st.markdown('<h1 class="main-title" style="margin-top: 4rem;">🧠 ChatBI 智能数据助理</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-title" style="margin-top: 4rem;">✨ ChatBI 智能数据助理</h1>', unsafe_allow_html=True)
     st.markdown('<p class="subtitle">基于 SOP & MCP 双层引擎的产销存智能决策助理</p>', unsafe_allow_html=True)
     
     st.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
