@@ -776,7 +776,7 @@ for msg_idx, msg in enumerate(active_sess["messages"]):
                                     sql_val = json.loads(step.get("mcp_output", "")).get("sql", "")
                                     if sql_val:
                                         st.code(sql_val, language="sql")
-                                  except Exception:
+                                except Exception:
                                     pass
                             
                             # Pack raw JSON technical parameters behind collapsible expander (Hidden for business users)
