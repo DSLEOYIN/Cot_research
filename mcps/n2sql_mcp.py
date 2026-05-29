@@ -38,29 +38,33 @@ def n2sql(
     Returns:
         生成的 SQL 语句
     """
-    # 默认表结构信息（从 YAML 配置提取）
-    default_table_info = """
-    ### 批发终端日表（v_dm_sal_wolesale_terminal_dly）
-    - period_td: 统计日期
-    - area_name: 大区名称（中东公司、巴拿马公司等）
-    - country_name: 国家名称
-    - model_name: 车型名称
-    - wholesale_qty: 批发量
-    - terminal_qty: 终端量
+    # 从 theme_loader 中动态加载当前激活主题的表结构 DDL
+    try:
+        import theme_loader
+        default_table_info = theme_loader.get_active_theme_table_info()
+    except Exception:
+        default_table_info = """
+        ### 批发终端日表（v_dm_sal_wolesale_terminal_dly）
+        - period_td: 统计日期
+        - area_name: 大区名称（中东公司、巴拿马公司等）
+        - country_name: 国家名称
+        - model_name: 车型名称
+        - wholesale_qty: 批发量
+        - terminal_qty: 终端量
 
-    ### 库存日表（v_dm_sal_stock_dly）
-    - period_td: 统计日期
-    - area_name: 大区名称
-    - country_name: 国家名称
-    - model_name: 车型名称
-    - stock_qty: 总库存
+        ### 库存日表（v_dm_sal_stock_dly）
+        - period_td: 统计日期
+        - area_name: 大区名称
+        - country_name: 国家名称
+        - model_name: 车型名称
+        - stock_qty: 总库存
 
-    ### SC订单日表（v_dm_sal_sc_order_dly）
-    - period_td: 统计日期
-    - area_name: 大区名称
-    - country_name: 国家名称
-    - order_qty: 订单量
-    """
+        ### SC订单日表（v_dm_sal_sc_order_dly）
+        - period_td: 统计日期
+        - area_name: 大区名称
+        - country_name: 国家名称
+        - order_qty: 订单量
+        """
 
     info = table_info or default_table_info
 
@@ -73,10 +77,12 @@ def n2sql(
 {info}
 
 生成规则：
-1. 只返回 SQL，不要包含任何解释
-2. 为每个列指定中文别名
-3. 严禁使用 JOIN，用子查询实现多表查询
-4. 默认返回聚合总值
+1. 只返回 SQL，不要包含任何解释。
+2. 为每个列指定中文别名。
+3. 严禁使用 JOIN，用子查询实现多表查询。
+4. 默认返回时间周期内的聚合总值。
+5. 必须且只能使用物理英文表名（如 v_dm_sal_wolesale_terminal_dly），绝对禁止在 SQL 中直接使用中文表名（如“批发终端日表”）或拼音表名（如“xiaoshou_biao”）。
+6. 必须且只能使用物理英文列名（如 period_td、area_name、country_name、model_name、wholesale_qty、terminal_qty），绝对禁止使用中文列名。
 
 SQL："""
 

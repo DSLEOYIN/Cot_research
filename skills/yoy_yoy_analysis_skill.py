@@ -41,7 +41,7 @@ SKILL_CONFIG = {
                 "mcp": "knowledge_retrieval",
                 "arguments": {
                     "query": "{{input.query}}",
-                    "dataset_ids": ["同环比计算规则", "字段标准查询名检索"]
+                    "dataset_ids": ["同环比计算规则", "字段标准查询名检索", "表用途说明"]
                 }
             },
             {

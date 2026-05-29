@@ -16,6 +16,9 @@ from app_config import get_config
 from mcps import execute_mcp, list_mcps
 from skills import get_skill, list_skills
 
+# Active global callback for streaming status updates
+_ACTIVE_CALLBACK = None
+
 
 # ==================== Variable Template Resolver ====================
 
@@ -108,6 +111,7 @@ def step1_select_skill(state: AgentState) -> AgentState:
     """
     Step 1: LLM Dynamic Router to choose appropriate Skill
     """
+    global _ACTIVE_CALLBACK
     messages = list(state["messages"])
     user_question = messages[-1].get("content", "") if messages else ""
 
@@ -183,6 +187,13 @@ def step1_select_skill(state: AgentState) -> AgentState:
         "llm_output": content,
     }
 
+    # Trigger streaming callback
+    if _ACTIVE_CALLBACK:
+        try:
+            _ACTIVE_CALLBACK(thought_entry)
+        except Exception:
+            pass
+
     return {
         **state,
         "messages": messages + [{"role": "assistant", "content": f"[技能意图路由] {selected_skill}"}],
@@ -198,6 +209,7 @@ def step2_run_workflow(state: AgentState) -> AgentState:
     Step 2: Generic standard Workflow Engine node.
     Performs step-by-step SOP execution with context piping and outputs the thought chain.
     """
+    global _ACTIVE_CALLBACK
     skill_name = state.get("selected_skill")
     messages = list(state["messages"])
     user_question = messages[0].get("content", "") if messages else ""
@@ -271,11 +283,18 @@ def step2_run_workflow(state: AgentState) -> AgentState:
 
         thought_process.append(step_thought)
 
+        # Trigger streaming callback
+        if _ACTIVE_CALLBACK:
+            try:
+                _ACTIVE_CALLBACK(step_thought)
+            except Exception:
+                pass
+
         if isinstance(result_data, dict) and result_data.get("success") is False:
             error_message = result_data.get("error") or "MCP 执行失败"
             error_type = result_data.get("error_type") or "MCPError"
             final_answer = f"工作流已中断：步骤 {step_num} [{step_name}] 调用 {mcp_name} 失败。错误类型：{error_type}。错误信息：{error_message}"
-            thought_process.append({
+            error_thought = {
                 "step": step_num + 2,
                 "step_type": "workflow_error",
                 "decision": "关键 MCP 失败，工作流已中断",
@@ -284,7 +303,15 @@ def step2_run_workflow(state: AgentState) -> AgentState:
                 "error_type": error_type,
                 "failed_step": step_name,
                 "failed_mcp": mcp_name,
-            })
+            }
+            thought_process.append(error_thought)
+
+            # Trigger streaming callback
+            if _ACTIVE_CALLBACK:
+                try:
+                    _ACTIVE_CALLBACK(error_thought)
+                except Exception:
+                    pass
             return {
                 **state,
                 "messages": messages + [{"role": "assistant", "content": final_answer}],
@@ -296,23 +323,67 @@ def step2_run_workflow(state: AgentState) -> AgentState:
                 "is_final": True
             }
 
-    # Extract final answer from the last step
+    # Extract final answer from the workflow steps
     final_answer = ""
-    try:
-        last_data = json.loads(last_step_output)
-        if isinstance(last_data, dict):
-            if "text" in last_data and last_data["text"]:
-                final_answer = last_data["text"]
-            elif "data" in last_data and last_data["data"]:
-                final_answer = last_data["data"]
-            elif "result" in last_data and last_data["result"]:
-                final_answer = str(last_data["result"])
+
+    # Helper to extract text from step outputs
+    def _extract_step_text(step_output):
+        if isinstance(step_output, str):
+            try:
+                step_output = json.loads(step_output)
+            except Exception:
+                return step_output
+        if isinstance(step_output, dict):
+            return step_output.get("text") or step_output.get("data") or step_output.get("result") or str(step_output)
+        return str(step_output)
+
+    # 1. Custom structured formatting for data_query skill
+    if "data_interpretation" in context["steps"] and "data_scope_explanation" in context["steps"]:
+        interpretation_text = _extract_step_text(context["steps"]["data_interpretation"]["output"])
+        scope_text = _extract_step_text(context["steps"]["data_scope_explanation"]["output"])
+        
+        table_md = ""
+        if "sql_execution" in context["steps"]:
+            table_md = _extract_step_text(context["steps"]["sql_execution"]["output"])
+            
+        final_answer = ""
+        if table_md and "|" in table_md:
+            final_answer += f"### 📊 数据查询结果\n{table_md}\n\n"
+            
+        final_answer += f"### 💡 业务分析与解读\n{interpretation_text}\n\n"
+        final_answer += f"### 🛡️ 数据统计口径说明\n> {scope_text}"
+        
+    # 2. Custom structured formatting for YoY analysis skill
+    elif "yoy_analysis" in context["steps"]:
+        yoy_analysis_text = _extract_step_text(context["steps"]["yoy_analysis"]["output"])
+        
+        table_md = ""
+        if "sql_execution" in context["steps"]:
+            table_md = _extract_step_text(context["steps"]["sql_execution"]["output"])
+            
+        final_answer = ""
+        if table_md and "|" in table_md:
+            final_answer += f"### 📊 同环比计算数据\n{table_md}\n\n"
+            
+        final_answer += f"### 💡 同环比深度解读\n{yoy_analysis_text}"
+
+    # 3. Default fallback for other skills / chat
+    else:
+        try:
+            last_data = json.loads(last_step_output)
+            if isinstance(last_data, dict):
+                if "text" in last_data and last_data["text"]:
+                    final_answer = last_data["text"]
+                elif "data" in last_data and last_data["data"]:
+                    final_answer = last_data["data"]
+                elif "result" in last_data and last_data["result"]:
+                    final_answer = str(last_data["result"])
+                else:
+                    final_answer = str(last_data)
             else:
                 final_answer = str(last_data)
-        else:
-            final_answer = str(last_data)
-    except Exception:
-        final_answer = last_step_output
+        except Exception:
+            final_answer = last_step_output
 
     # Append final visual thought chain
     final_thought = {
@@ -322,6 +393,13 @@ def step2_run_workflow(state: AgentState) -> AgentState:
         "final_answer": final_answer
     }
     thought_process.append(final_thought)
+
+    # Trigger streaming callback
+    if _ACTIVE_CALLBACK:
+        try:
+            _ACTIVE_CALLBACK(final_thought)
+        except Exception:
+            pass
 
     return {
         **state,
@@ -339,6 +417,7 @@ def step2_run_workflow(state: AgentState) -> AgentState:
 
 def mock_select_skill(state: AgentState) -> AgentState:
     """Mock Router fallback in case API key is missing"""
+    global _ACTIVE_CALLBACK
     messages = list(state["messages"])
     user_question = messages[-1].get("content", "") if messages else ""
 
@@ -366,6 +445,13 @@ def mock_select_skill(state: AgentState) -> AgentState:
         "reason": reason,
         "llm_output": f"[RULE] Selected Skill: {selected_skill} because of rule matching.",
     }
+
+    # Trigger streaming callback
+    if _ACTIVE_CALLBACK:
+        try:
+            _ACTIVE_CALLBACK(thought_entry)
+        except Exception:
+            pass
 
     return {
         **state,
@@ -420,8 +506,10 @@ except ImportError as e:
 
 # ==================== Executable Run Agent Function ====================
 
-def run_agent(question: str):
-    """Main execution engine method"""
+def run_agent(question: str, callback=None):
+    """Main execution engine method with optional step-by-step callback"""
+    global _ACTIVE_CALLBACK
+    _ACTIVE_CALLBACK = callback
     if graph is None:
         return {"error": "LangGraph is not configured correctly."}
 

@@ -59,11 +59,30 @@ class DatabaseConfig:
 
 
 @dataclass(frozen=True)
+class SSHConfig:
+    enabled: bool
+    host: str | None
+    port: int
+    user: str | None
+    password: str | None
+
+
+@dataclass(frozen=True)
+class DifyConfig:
+    enabled: bool
+    base_url: str
+    api_key: str | None
+    dataset_id: str | None
+
+
+@dataclass(frozen=True)
 class AppConfig:
     app_mode: str
     mock_enabled: bool
     model: ModelConfig
     database: DatabaseConfig
+    ssh: SSHConfig
+    dify: DifyConfig
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -104,6 +123,59 @@ def _database_from_uri(db_uri: str) -> DatabaseConfig:
     )
 
 
+def _parse_ssh_config(root_dir: Path) -> SSHConfig:
+    # 1. Try standard environment variables
+    ssh_host = os.getenv("SSH_HOST")
+    ssh_port = _env_int("SSH_PORT", 22)
+    ssh_user = os.getenv("SSH_USER")
+    ssh_password = os.getenv("SSH_PASSWORD")
+
+    if ssh_host and ssh_user:
+        return SSHConfig(
+            enabled=_env_bool("SSH_ENABLED", True),
+            host=ssh_host,
+            port=ssh_port,
+            user=ssh_user,
+            password=ssh_password,
+        )
+
+    # 2. Fallback to parsing user's custom format in .env
+    env_path = root_dir / ".env"
+    if not env_path.exists():
+        return SSHConfig(enabled=False, host=None, port=22, user=None, password=None)
+
+    import re
+    try:
+        content = env_path.read_text(encoding="utf-8")
+        
+        # Regex matching an IP and port (e.g. 10.30.8.37：9081)
+        ip_port_match = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})[:：](\d+)", content)
+        if ip_port_match:
+            ssh_host = ip_port_match.group(1)
+            ssh_port = int(ip_port_match.group(2))
+            
+        # Search for user: "账号：model" or "账号:model"
+        user_match = re.search(r"(?:账号|user|username)[:：\s=]+([^\s\r\n]+)", content)
+        if user_match:
+            ssh_user = user_match.group(1).strip()
+            
+        # Search for password: "密码：^Dskj@Model1" or "密码:^Dskj@Model1"
+        password_match = re.search(r"(?:密码|password|pass)[:：\s=]+([^\s\r\n]+)", content)
+        if password_match:
+            ssh_password = password_match.group(1).strip()
+    except Exception:
+        pass
+
+    enabled = bool(ssh_host and ssh_user)
+    return SSHConfig(
+        enabled=enabled,
+        host=ssh_host,
+        port=ssh_port,
+        user=ssh_user,
+        password=ssh_password,
+    )
+
+
 def get_config(db_uri: str | None = None) -> AppConfig:
     app_mode = os.getenv("APP_MODE", "mock").strip().lower()
     mock_enabled = app_mode == "mock" or _env_bool("MOCK_ENABLED", app_mode != "real")
@@ -134,20 +206,52 @@ def get_config(db_uri: str | None = None) -> AppConfig:
             write_timeout=_env_int("DB_WRITE_TIMEOUT", 30),
         )
 
+    ssh = _parse_ssh_config(ROOT_DIR)
+
+    dify_enabled = _env_bool("DIFY_ENABLED", True)
+    dify_base_url = os.getenv("DIFY_BASE_URL", "http://10.30.11.215:9879").rstrip("/")
+    dify_api_key = os.getenv("DIFY_API_KEY", "dataset-S5L6smkj8ovnSz8rMl5DZUvj")
+    dify_dataset_id = os.getenv("DIFY_DATASET_ID", "ffa84ba6-4ec9-44a0-8f6d-594b27f7a829")
+
+    dify = DifyConfig(
+        enabled=dify_enabled and bool(dify_api_key and dify_dataset_id),
+        base_url=dify_base_url,
+        api_key=dify_api_key,
+        dataset_id=dify_dataset_id,
+    )
+
     return AppConfig(
         app_mode=app_mode,
         mock_enabled=mock_enabled,
         model=model,
         database=database,
+        ssh=ssh,
+        dify=dify,
     )
 
 
 def _allowed_tables() -> tuple[str, ...]:
-    raw = os.getenv(
-        "DB_ALLOWED_TABLES",
-        "v_dm_sal_wolesale_terminal_dly,v_dm_sal_stock_dly,v_dm_sal_sc_order_dly,v_dm_sal_scheduling_dly",
+    # 1. If DB_ALLOWED_TABLES is explicitly set in the environment, use it
+    if os.getenv("DB_ALLOWED_TABLES"):
+        raw = os.getenv("DB_ALLOWED_TABLES")
+        return tuple(table.strip().lower() for table in raw.split(",") if table.strip())
+    
+    # 2. Otherwise, dynamically load from the active scenario theme
+    try:
+        import theme_loader
+        tables = theme_loader.get_active_theme_tables()
+        if tables:
+            return tables
+    except Exception:
+        pass
+
+    # 3. Fallback default tables
+    return (
+        "v_dm_sal_wolesale_terminal_dly",
+        "v_dm_sal_stock_dly",
+        "v_dm_sal_sc_order_dly",
+        "v_dm_sal_scheduling_dly"
     )
-    return tuple(table.strip().lower() for table in raw.split(",") if table.strip())
 
 
 def require_real_mode_config(config: AppConfig, *, need_model: bool = False, need_db: bool = False) -> str | None:

@@ -7,6 +7,7 @@
 import json
 from typing import TypedDict
 from mcps import register_mcp
+from app_config import get_config
 
 
 class KnowledgeRetrievalInput(TypedDict):
@@ -45,7 +46,7 @@ def knowledge_retrieval(
         "字段标准查询名检索": [
             {"content": "终端量 (terminal_qty): 指实际销售给终端客户的数量，也就是零售量"},
             {"content": "批发量 (wholesale_qty): 主机厂销往经销商的车辆数量"},
-            {"content": "交付量 (delivery_qty): 工厂下线并交付的车辆数量"},
+            {"content": "交付量 (delivery_qty): 工厂下线并交付 of 车辆数量"},
             {"content": "库存量 (stock_qty): 经销商、子公司、厂端库存总和"},
             {"content": "订单量 (order_qty): 新增SC订单的数量"},
         ],
@@ -56,52 +57,128 @@ def knowledge_retrieval(
             {"content": "环比增长率 = (本期 - 上期) / 上期 * 100%"},
         ],
         "表用途说明": [
-            {"content": "批发终端日表: 记录批发量和终端量数据"},
-            {"content": "库存日表: 记录库存相关数据，包含库龄分布"},
-            {"content": "SC订单日表: 记录新增订单数据"},
-            {"content": "排产日表: 记录排产和交付数据"},
+            {"content": "批发终端日表 (物理表名: v_dm_sal_wolesale_terminal_dly): 记录批发量和终端量数据。常用字段有 period_td (统计日期), area_name (大区/区域名称如中东公司), country_name (国家), model_name (车型), wholesale_qty (批发量), terminal_qty (终端量)"},
+            {"content": "库存日表 (物理表名: v_dm_sal_stock_dly): 记录库存相关数据，包含库龄分布。常用字段有 period_td (统计日期), area_name (大区/区域名称如中东公司), country_name (国家), model_name (车型), stock_qty (库存量)"},
+            {"content": "SC订单日表 (物理表名: v_dm_sal_sc_order_dly): 记录新增订单数据。常用字段有 period_td (统计日期), area_name (大区/区域名称如中东公司), country_name (国家), model_name (车型), order_qty (订单量)"},
+            {"content": "排产日表 (物理表名: v_dm_sal_scheduling_dly): 记录排产和交付数据。常用字段有 period_td (统计日期), area_name (大区/区域名称如中东公司), country_name (国家), model_name (车型), delivery_qty (交付量), product_qty (排产量)"},
         ]
     }
 
-    try:
-        # 如果没有提供 dataset_ids，检索所有
-        if not dataset_ids:
-            target_datasets = default_datasets
-        else:
-            target_datasets = {k: v for k, v in default_datasets.items() if k in dataset_ids}
+    config = get_config()
+    results = []
 
-        results = []
-        for dataset_name, items in target_datasets.items():
-            # 简单的关键词匹配
-            for item in items:
-                if any(keyword in query for keyword in ["终端", "零售"]):
-                    if "终端" in item["content"]:
-                        results.append({"content": item["content"], "dataset": dataset_name, "score": 0.9})
-                elif any(keyword in query for keyword in ["批发", "销量", "发车"]):
-                    if "批发" in item["content"]:
-                        results.append({"content": item["content"], "dataset": dataset_name, "score": 0.9})
-                elif any(keyword in query for keyword in ["同比", "环比", "增长"]):
-                    if "同比" in item["content"] or "环比" in item["content"] or "增长" in item["content"]:
-                        results.append({"content": item["content"], "dataset": dataset_name, "score": 0.9})
+    # 1. 尝试直接请求 Dify 知识库接口
+    if config.dify.enabled and not config.mock_enabled:
+        import httpx
+        from urllib.parse import urlparse
+        parsed_url = urlparse(config.dify.base_url)
+        dify_host = parsed_url.hostname or "10.30.11.215"
+        dify_port = parsed_url.port or 9879
 
-        # 如果没有匹配，返回默认的表结构信息
-        if not results:
-            results = [
-                {"content": f"查询 '{query}' 相关的表结构和字段标准", "dataset": "default", "score": 0.5}
-            ]
+        try:
+            # 建立 SSH 隧道
+            if config.ssh.enabled:
+                from sshtunnel import SSHTunnelForwarder
+                with SSHTunnelForwarder(
+                    (config.ssh.host, config.ssh.port),
+                    ssh_username=config.ssh.user,
+                    ssh_password=config.ssh.password,
+                    remote_bind_address=(dify_host, dify_port)
+                ) as tunnel:
+                    url = f"http://127.0.0.1:{tunnel.local_bind_port}/v1/datasets/{config.dify.dataset_id}/retrieve"
+                    headers = {
+                        "Authorization": f"Bearer {config.dify.api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "query": query,
+                        "retrieval_model": {
+                            "search_method": "hybrid_search",
+                            "top_k": top_k or 3,
+                            "score_threshold_enabled": False,
+                            "reranking_enable": True,
+                            "reranking_model": {
+                                "reranking_provider_name": "langgenius/siliconflow/siliconflow",
+                                "reranking_model_name": "netease-youdao/bce-reranker-base_v1"
+                            }
+                        }
+                    }
+                    response = httpx.post(url, headers=headers, json=payload, timeout=15.0)
+                    response.raise_for_status()
+                    data = response.json()
+            else:
+                url = f"{config.dify.base_url}/v1/datasets/{config.dify.dataset_id}/retrieve"
+                headers = {
+                    "Authorization": f"Bearer {config.dify.api_key}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "query": query,
+                    "retrieval_model": {
+                        "search_method": "hybrid_search",
+                        "top_k": top_k or 3,
+                        "score_threshold_enabled": False,
+                        "reranking_enable": True,
+                        "reranking_model": {
+                            "reranking_provider_name": "langgenius/siliconflow/siliconflow",
+                            "reranking_model_name": "netease-youdao/bce-reranker-base_v1"
+                        }
+                    }
+                }
+                response = httpx.post(url, headers=headers, json=payload, timeout=15.0)
+                response.raise_for_status()
+                data = response.json()
 
-        return json.dumps({
-            "success": True,
-            "results": results[:top_k],
-            "query": query
-        }, ensure_ascii=False)
+            for record in data.get("records", []):
+                segment = record.get("segment", {})
+                content = segment.get("content", "")
+                score = record.get("score", 0.0)
+                results.append({
+                    "content": content,
+                    "dataset": segment.get("document", {}).get("name", "dify_knowledge"),
+                    "score": score
+                })
 
-    except Exception as e:
-        return json.dumps({
-            "success": False,
-            "error": str(e),
-            "results": []
-        }, ensure_ascii=False)
+        except Exception as e:
+            print(f"[Knowledge Retrieval] Dify API retrieve failed: {e}. Falling back to local memory.")
+            results = []
+
+    # 2. 如果 Dify 未启用、未查到结果或出错，降级为本地规则过滤
+    if not results:
+        try:
+            if not dataset_ids:
+                target_datasets = default_datasets
+            else:
+                target_datasets = {k: v for k, v in default_datasets.items() if k in dataset_ids}
+
+            for dataset_name, items in target_datasets.items():
+                for item in items:
+                    if any(keyword in query for keyword in ["终端", "零售"]):
+                        if "终端" in item["content"]:
+                            results.append({"content": item["content"], "dataset": dataset_name, "score": 0.9})
+                    elif any(keyword in query for keyword in ["批发", "销量", "发车"]):
+                        if "批发" in item["content"]:
+                            results.append({"content": item["content"], "dataset": dataset_name, "score": 0.9})
+                    elif any(keyword in query for keyword in ["同比", "环比", "增长"]):
+                        if "同比" in item["content"] or "环比" in item["content"] or "增长" in item["content"]:
+                            results.append({"content": item["content"], "dataset": dataset_name, "score": 0.9})
+
+            if not results:
+                results = [
+                    {"content": f"查询 '{query}' 相关的表结构和字段标准", "dataset": "default", "score": 0.5}
+                ]
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+                "results": []
+            }, ensure_ascii=False)
+
+    return json.dumps({
+        "success": True,
+        "results": results[:top_k],
+        "query": query
+    }, ensure_ascii=False)
 
 
 MCP_CONFIG = {

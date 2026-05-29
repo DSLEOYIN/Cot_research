@@ -179,6 +179,11 @@ def llm(
             "error_type": "ConfigurationError"
         }, ensure_ascii=False)
 
+    # Dynamically resolve model name (fallback to config/default deepseek-chat)
+    model_name = config.model.model or "deepseek-chat"
+    if model and model != "DeepSeek-V3.1":
+        model_name = model
+
     try:
         import httpx
 
@@ -188,7 +193,7 @@ def llm(
         }
 
         payload = {
-            "model": model or config.model.model,
+            "model": model_name,
             "messages": [{"role": "user", "content": full_prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens

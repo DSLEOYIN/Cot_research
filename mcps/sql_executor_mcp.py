@@ -105,12 +105,30 @@ def sql_executor(
     db = config.database
 
     # 执行查询
+    tunnel = None
+    connection = None
     try:
         import pymysql
 
+        # Determine host and port (either via SSH tunnel or direct connection)
+        if config.ssh.enabled:
+            from sshtunnel import SSHTunnelForwarder
+            tunnel = SSHTunnelForwarder(
+                (config.ssh.host, config.ssh.port),
+                ssh_username=config.ssh.user,
+                ssh_password=config.ssh.password,
+                remote_bind_address=(db.host, db.port)
+            )
+            tunnel.start()
+            db_host = "127.0.0.1"
+            db_port = tunnel.local_bind_port
+        else:
+            db_host = db.host
+            db_port = db.port
+
         connection = pymysql.connect(
-            host=db.host,
-            port=db.port,
+            host=db_host,
+            port=db_port,
             user=db.user,
             password=db.password,
             database=db.name,
@@ -169,6 +187,17 @@ def sql_executor(
             "error_type": error_type,
             "row_count": None
         }, ensure_ascii=False)
+    finally:
+        if connection:
+            try:
+                connection.close()
+            except Exception:
+                pass
+        if tunnel:
+            try:
+                tunnel.stop()
+            except Exception:
+                pass
 
 
 def validate_select_sql(query: str, allowed_tables: tuple[str, ...]) -> str | None:
