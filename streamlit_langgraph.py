@@ -21,8 +21,14 @@ from app_config import get_config
 import theme_loader
 
 
-def render_markdown_table_chart(md_table: str):
-    import pandas as pd
+def render_echarts_markdown(md_table: str):
+    """
+    Parses a markdown table, extracts category X-data and numerical Y-data,
+    and renders a stunning, responsive ECharts 5.x chart via HTML iframe component.
+    """
+    import streamlit.components.v1 as components
+    import json
+    
     try:
         lines = [line.strip() for line in md_table.strip().split("\n") if line.strip()]
         if len(lines) < 3:
@@ -43,29 +49,219 @@ def render_markdown_table_chart(md_table: str):
         if not rows_data:
             return
             
-        df = pd.DataFrame(rows_data, columns=headers)
+        # Category Data (X-axis) - first column
+        x_data = [row[0] for row in rows_data]
         
-        for col in df.columns:
-            try:
-                cleaned = df[col].astype(str).str.replace("%", "").str.replace(",", "").str.strip()
-                df[col] = pd.to_numeric(cleaned)
-            except Exception:
-                pass
-                
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-        if numeric_cols and len(df) > 0:
-            st.markdown("<p style='font-size:0.95rem; font-weight:600; color:#0d0d0d; margin-top:1.2rem; margin-bottom:0.5rem;'>📊 动态数据直观图表</p>", unsafe_allow_html=True)
+        # Series list (Y-axis numerical values)
+        series_list = []
+        
+        # Check every remaining column to see if it is numeric
+        for col_idx in range(1, len(headers)):
+            col_name = headers[col_idx]
+            y_data = []
+            is_numeric = True
+            for row in rows_data:
+                val = row[col_idx]
+                try:
+                    # Strip symbols like %, commas and spaces
+                    cleaned = val.replace("%", "").replace(",", "").strip()
+                    y_data.append(float(cleaned))
+                except ValueError:
+                    is_numeric = False
+                    break
             
-            categorical_cols = [c for c in df.columns if c not in numeric_cols]
-            if categorical_cols:
-                x_col = categorical_cols[0]
-                df_chart = df.set_index(x_col)[numeric_cols]
-            else:
-                df_chart = df[numeric_cols]
-                
-            st.bar_chart(df_chart, use_container_width=True)
+            if is_numeric:
+                series_list.append({
+                    "name": col_name,
+                    "type": "bar",
+                    "data": y_data,
+                    "itemStyle": {
+                        "borderRadius": [6, 6, 0, 0] # Beautiful rounded bars matching modern charts
+                    },
+                    "barMaxWidth": 40 # Limit bar width to look professional
+                })
+        
+        if not series_list:
+            return
+            
+        # Build ECharts options in JSON
+        echarts_options = {
+            "tooltip": {
+                "trigger": "axis",
+                "backgroundColor": "rgba(255, 255, 255, 0.95)",
+                "borderColor": "#e3e3e3",
+                "borderWidth": 1,
+                "textStyle": {
+                    "color": "#0d0d0d",
+                    "fontFamily": "Inter, sans-serif"
+                },
+                "axisPointer": {
+                    "type": "shadow"
+                }
+            },
+            "legend": {
+                "data": [s["name"] for s in series_list],
+                "textStyle": {
+                    "color": "#4b5563",
+                    "fontFamily": "Inter, sans-serif"
+                },
+                "top": "0%"
+            },
+            "grid": {
+                "left": "3%",
+                "right": "4%",
+                "bottom": "3%",
+                "top": "15%",
+                "containLabel": True
+            },
+            "xAxis": {
+                "type": "category",
+                "data": x_data,
+                "axisLine": {
+                    "lineStyle": {
+                        "color": "#e5e7eb"
+                    }
+                },
+                "axisLabel": {
+                    "color": "#4b5563",
+                    "fontFamily": "Inter, sans-serif"
+                }
+            },
+            "yAxis": {
+                "type": "value",
+                "splitLine": {
+                    "lineStyle": {
+                        "type": "dashed",
+                        "color": "#f3f4f6"
+                    }
+                },
+                "axisLabel": {
+                    "color": "#4b5563",
+                    "fontFamily": "Inter, sans-serif"
+                }
+            },
+            "color": ["#1a73e8", "#34a853", "#fbbc05", "#ea4335", "#8e8e8e"], # Soft pastel colors
+            "series": series_list
+        }
+        
+        options_json = json.dumps(echarts_options, ensure_ascii=False)
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+            <style>
+                body {{
+                    margin: 0;
+                    padding: 0;
+                    background-color: transparent;
+                }}
+                #chart-container {{
+                    width: 100%;
+                    height: 330px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div id="chart-container"></div>
+            <script>
+                var chartDom = document.getElementById('chart-container');
+                var myChart = echarts.init(chartDom);
+                var option = {options_json};
+                myChart.setOption(option);
+                window.addEventListener('resize', function() {{
+                    myChart.resize();
+                }});
+            </script>
+        </body>
+        </html>
+        """
+        
+        st.markdown("<p style='font-size:0.95rem; font-weight:600; color:#0d0d0d; margin-top:1.2rem; margin-bottom:0.2rem;'>📈 动态数据智能分析图表 (ECharts)</p>", unsafe_allow_html=True)
+        components.html(html_content, height=340)
+        
     except Exception:
         pass
+
+
+def render_split_assistant_content(final_answer_text: str):
+    """
+    Parses and splits the combined assistant final answer text, and renders the elements
+    strictly in the requested business order:
+    1. Data Table (📊 数据查询结果)
+    2. ECharts Chart (📈 动态分析图表)
+    3. Business Analysis & Interpretation (💡 业务分析与深度解读)
+    4. Data Scope & Explanation (🛡️ 数据统计口径说明)
+    """
+    table_section = ""
+    analysis_section = ""
+    scope_section = ""
+    is_yoy = "同环比" in final_answer_text or "YOY" in final_answer_text.upper()
+    
+    # 1. Split logic based on standard headers
+    if "### 📊 数据查询结果" in final_answer_text:
+        parts = final_answer_text.split("### 💡 业务分析与解读")
+        table_part = parts[0].replace("### 📊 数据查询结果", "").strip()
+        table_section = table_part
+        
+        if len(parts) > 1:
+            rest = parts[1]
+            if "### 🛡️ 数据统计口径说明" in rest:
+                sub_parts = rest.split("### 🛡️ 数据统计口径说明")
+                analysis_section = sub_parts[0].strip()
+                scope_section = sub_parts[1].strip()
+            else:
+                analysis_section = rest.strip()
+                
+    elif "### 📊 同环比计算数据" in final_answer_text:
+        parts = final_answer_text.split("### 💡 同环比深度解读")
+        table_part = parts[0].replace("### 📊 同环比计算数据", "").strip()
+        table_section = table_part
+        
+        if len(parts) > 1:
+            analysis_section = parts[1].strip()
+            
+    else:
+        # Fallback for chat or non-structured responses
+        table_section = ""
+        analysis_section = final_answer_text
+        scope_section = ""
+        
+    # 2. Render structured blocks sequentially
+    
+    # Step 1: Render Data Table
+    if table_section:
+        if is_yoy:
+            st.markdown("### 📊 同环比计算数据")
+        else:
+            st.markdown("### 📊 数据查询结果")
+        st.markdown(table_section)
+        
+        # Step 2: Render ECharts Visualization directly beneath the data table
+        try:
+            table_part = ""
+            for line in table_section.split("\n"):
+                if line.strip().startswith("|"):
+                    table_part += line + "\n"
+            if table_part:
+                render_echarts_markdown(table_part)
+        except Exception:
+            pass
+            
+    # Step 3: Render Business Analysis & Interpretation
+    if analysis_section:
+        if is_yoy:
+            st.markdown("### 💡 同环比深度解读")
+        else:
+            st.markdown("### 💡 业务分析与解读")
+        st.markdown(analysis_section)
+        
+    # Step 4: Render Data Scope / Explanation
+    if scope_section:
+        st.markdown("### 🛡️ 数据统计口径说明")
+        st.markdown(f"> {scope_section.lstrip('>').strip()}")
 
 
 # ==================== Page Configuration ====================
@@ -88,7 +284,6 @@ if "active_session_id" not in st.session_state:
     }
     st.session_state.active_session_id = default_id
 
-# Inconsistency recovery
 active_id = st.session_state.active_session_id
 if active_id not in st.session_state.sessions:
     if st.session_state.sessions:
@@ -186,32 +381,51 @@ st.markdown("""
         transform: translateY(0);
     }
     
-    /* Sidebar Action/Control Buttons */
-    section[data-testid="stSidebar"] button {
+    /* Sidebar List Item Select Buttons */
+    section[data-testid="stSidebar"] div.stButton > button {
+        background-color: transparent !important;
+        border: none !important;
+        color: #374151 !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        font-size: 0.88rem !important;
+        padding: 0.5rem 0.8rem !important;
+        min-height: auto !important;
+        border-radius: 8px !important;
+        width: 100% !important;
+        box-shadow: none !important;
+    }
+    section[data-testid="stSidebar"] div.stButton > button:hover {
+        background-color: #ececec !important;
+        color: #0d0d0d !important;
+    }
+    
+    /* Sidebar Action/Control Row Buttons */
+    div.sidebar-action-bar button {
         background-color: #ffffff !important;
         border: 1px solid #e3e3e3 !important;
-        border-radius: 8px !important;
+        border-radius: 6px !important;
         color: #374151 !important;
-        padding: 0.35rem 0.6rem !important;
+        padding: 0.25rem 0.5rem !important;
         min-height: auto !important;
-        font-size: 0.82rem !important;
+        font-size: 0.78rem !important;
         text-align: center !important;
         justify-content: center !important;
         font-weight: 500 !important;
         box-shadow: none !important;
+        width: 100% !important;
     }
-    section[data-testid="stSidebar"] button:hover {
+    div.sidebar-action-bar button:hover {
         background-color: #f4f4f4 !important;
         border-color: #b4b4b4 !important;
         color: #0d0d0d !important;
     }
     
-    /* Sidebar Session List Items styling (borderless rows) */
-    div.sess-row-container {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        margin-bottom: 2px;
+    /* Pinned and Active Session visual indicators */
+    .active-session-indicator {
+        font-weight: 600 !important;
+        background-color: #ececec !important;
+        color: #0d0d0d !important;
     }
     
     /* Style the sidebar inputs to look like ChatGPT standard fields */
@@ -310,7 +524,8 @@ st.markdown("""
 
 # ==================== Sidebar: ChatGPT Multi-Session Panel ====================
 with st.sidebar:
-    st.markdown('<h2 style="font-size:1.4rem; margin-bottom:0.5rem; color:#0d0d0d; display:flex; align-items:center;">✨ ChatBI 场景管理</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 style="font-size:1.4rem; margin-bottom:0.2rem; color:#0d0d0d; display:flex; align-items:center;">✨ ChatBI 场景管理</h2>', unsafe_allow_html=True)
+    st.caption("💡 侧边栏支持使用左上角 ◀ 按钮进行折叠/展开")
     st.markdown("---")
 
     # [+] New Chat Button
@@ -339,7 +554,7 @@ with st.sidebar:
         is_active = (s_id == active_id)
         
         # Determine visual title
-        pin_prefix = "📌 " if s.get("is_pinned") else ""
+        pin_prefix = "📌 " if s.get("is_pinned") else "💬 "
         btn_label = f"{pin_prefix}{s['title']}"
         if is_active:
             btn_label = f"👉 {btn_label}"
@@ -347,23 +562,23 @@ with st.sidebar:
         # Form block for renaming
         if st.session_state.get(f"renaming_{s_id}"):
             with st.form(key=f"rename_form_{s_id}"):
-                new_title = st.text_input("重命名", value=s['title'], key=f"new_title_val_{s_id}", label_visibility="collapsed")
+                new_title = st.text_input("重命名会话", value=s['title'], key=f"new_title_val_{s_id}", label_visibility="collapsed")
                 cols_form = st.columns(2)
-                if cols_form[0].form_submit_button("💾"):
+                if cols_form[0].form_submit_button("💾 保存"):
                     if new_title.strip():
                         s['title'] = new_title.strip()
                     st.session_state.pop(f"renaming_{s_id}", None)
                     st.rerun()
-                if cols_form[1].form_submit_button("❌"):
+                if cols_form[1].form_submit_button("❌ 取消"):
                     st.session_state.pop(f"renaming_{s_id}", None)
                     st.rerun()
             continue
             
         # Dialog block for delete confirmation
         if st.session_state.get(f"confirm_delete_{s_id}"):
-            st.markdown(f"<p style='font-size:0.8rem; color:#dc2626; font-weight:bold; margin-bottom:4px;'>⚠️ 确定要删除会话吗？</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='font-size:0.8rem; color:#dc2626; font-weight:bold; margin-bottom:4px; margin-top:8px;'>⚠️ 确定要删除会话吗？</p>", unsafe_allow_html=True)
             cols_del = st.columns(2)
-            if cols_del[0].button("✅", key=f"do_delete_{s_id}", help="确认删除"):
+            if cols_del[0].button("✅ 确定", key=f"do_delete_{s_id}", help="确认删除"):
                 st.session_state.sessions.pop(s_id, None)
                 st.session_state.pop(f"confirm_delete_{s_id}", None)
                 
@@ -382,34 +597,34 @@ with st.sidebar:
                         }
                         st.session_state.active_session_id = new_id
                 st.rerun()
-            if cols_del[1].button("❌", key=f"cancel_delete_{s_id}", help="取消"):
+            if cols_del[1].button("❌ 取消", key=f"cancel_delete_{s_id}", help="取消"):
                 st.session_state.pop(f"confirm_delete_{s_id}", None)
                 st.rerun()
             continue
 
-        # Render normal session row with columns
-        cols = st.columns([0.64, 0.12, 0.12, 0.12])
-        
-        # 1. Select session button
-        if cols[0].button(btn_label, key=f"select_{s_id}", use_container_width=True):
+        # 1. Render Session Name Select button (100% width, no side-by-side columns to squeeze)
+        if st.button(btn_label, key=f"select_{s_id}", use_container_width=True):
             st.session_state.active_session_id = s_id
             st.rerun()
             
-        # 2. Pin/Unpin
-        pin_icon = "📍" if s.get("is_pinned") else "📌"
-        if cols[1].button(pin_icon, key=f"pin_btn_{s_id}", help="置顶/取消置顶"):
-            s["is_pinned"] = not s.get("is_pinned", False)
-            st.rerun()
+        # 2. Render small Action Bar ONLY under the ACTIVE session (ChatGPT premium dropdown-like bar)
+        if is_active:
+            st.markdown("<div class='sidebar-action-bar'>", unsafe_allow_html=True)
+            cols_act = st.columns([0.33, 0.33, 0.34])
             
-        # 3. Rename
-        if cols[2].button("✏️", key=f"rename_btn_{s_id}", help="重命名"):
-            st.session_state[f"renaming_{s_id}"] = True
-            st.rerun()
-            
-        # 4. Delete
-        if cols[3].button("🗑️", key=f"delete_btn_{s_id}", help="删除会话"):
-            st.session_state[f"confirm_delete_{s_id}"] = True
-            st.rerun()
+            pin_lbl = "📍 取消" if s.get("is_pinned") else "📌 置顶"
+            if cols_act[0].button(pin_lbl, key=f"pin_act_{s_id}", help="置顶/取消置顶"):
+                s["is_pinned"] = not s.get("is_pinned", False)
+                st.rerun()
+                
+            if cols_act[1].button("✏️ 改名", key=f"rename_act_{s_id}", help="重命名会话"):
+                st.session_state[f"renaming_{s_id}"] = True
+                st.rerun()
+                
+            if cols_act[2].button("🗑️ 删除", key=f"delete_act_{s_id}", help="删除当前会话"):
+                st.session_state[f"confirm_delete_{s_id}"] = True
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -508,14 +723,14 @@ if len(active_sess["messages"]) == 0:
     
     st.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
     
-    # Minimalist Suggestion Cards
+    # Minimalist Suggestion Cards (Completely pure text cards, no emoji icons!)
     st.markdown("<p style='font-size:0.95rem; font-weight: 500; color:#4b5563; margin-bottom: 0.8rem; text-align:center;'>💡 推荐快速测试案例</p>", unsafe_allow_html=True)
     cols = st.columns(4)
     examples = [
-        ("📊 本月中东公司销量多少？", "本月中东公司销量多少？", 0),
-        ("⚖️ 同比去年怎么样？", "本月终端量同比去年怎么样？", 1),
-        ("📖 什么是库存周转率？", "什么是库存周转率？", 2),
-        ("💬 汽车保养公里数？", "汽车保养一般多少公里做一次？", 3)
+        ("本月中东公司销量多少？", "本月中东公司销量多少？", 0),
+        ("同比去年怎么样？", "本月终端量同比去年怎么样？", 1),
+        ("什么是库存周转率？", "什么是库存周转率？", 2),
+        ("汽车保养公里数？", "汽车保养一般多少公里做一次？", 3)
     ]
 
     clicked_example = None
@@ -546,28 +761,38 @@ for msg_idx, msg in enumerate(active_sess["messages"]):
                         step_type = step.get("step_type", "")
                         
                         if step_type == "select_skill":
-                            st.markdown(f"**意图识别意图选择**: `{selected_skill or '直接回答/闲聊'}`")
-                            st.markdown(f"*选择原因*: {step.get('reason', '')}")
+                            st.markdown(f"**意图识别与技能路由**: `{selected_skill or '直接回答/闲聊'}`")
+                            st.markdown(f"*选择依据原因*: {step.get('reason', '')}")
                         elif step_type == "execute_mcp":
-                            st.markdown(f"**步骤 {step_num-1} [{step.get('reason', '')}]**: `{step.get('decision', '')}`")
+                            mcp_name = step.get("decision", "").split("调用原子工具 [")[-1].replace("]", "").split()[0]
+                            s_name = step.get("decision", "").split("[")[1].split("]")[0] if "[" in step.get("decision", "") else f"step_{step_num-1}"
                             
-                            mcp_in_str = json.dumps(step.get("mcp_input", {}), indent=2, ensure_ascii=False)
-                            mcp_out_raw = step.get("mcp_output", "")
-                            try:
-                                mcp_out_parsed = json.loads(mcp_out_raw)
-                                mcp_out_str = json.dumps(mcp_out_parsed, indent=2, ensure_ascii=False)
-                            except Exception:
-                                mcp_out_str = mcp_out_raw
+                            st.markdown(f"**⚙️ {s_name} ({mcp_name})**")
+                            st.caption(f"💡 {step.get('reason', '')}")
+                            
+                            # Render formatted SQL statements directly to normal users if it's N2SQL
+                            if mcp_name == "n2sql" and "sql" in step.get("mcp_output", ""):
+                                try:
+                                    sql_val = json.loads(step.get("mcp_output", "")).get("sql", "")
+                                    if sql_val:
+                                        st.code(sql_val, language="sql")
+                                  except Exception:
+                                    pass
+                            
+                            # Pack raw JSON technical parameters behind collapsible expander (Hidden for business users)
+                            with st.expander("🔍 开发者调试报文 (原始输入/输出详情)", expanded=False):
+                                mcp_in_str = json.dumps(step.get("mcp_input", {}), indent=2, ensure_ascii=False)
+                                mcp_out_raw = step.get("mcp_output", "")
+                                try:
+                                    mcp_out_parsed = json.loads(mcp_out_raw)
+                                    mcp_out_str = json.dumps(mcp_out_parsed, indent=2, ensure_ascii=False)
+                                except Exception:
+                                    mcp_out_str = mcp_out_raw
 
-                            st.markdown(f"""
-                            <details>
-                                <summary>查看本步参数传递与返回详情</summary>
-                                <p style="margin: 5px 0 2px 0; font-weight: bold; color: #1a73e8;">输入参数 (Arguments):</p>
-                                <pre>{mcp_in_str}</pre>
-                                <p style="margin: 8px 0 2px 0; font-weight: bold; color: #1a73e8;">输出数据 (Raw Return):</p>
-                                <pre>{mcp_out_str}</pre>
-                            </details>
-                            """, unsafe_allow_html=True)
+                                st.markdown("**🔹 输入参数 (Arguments):**")
+                                st.code(mcp_in_str, language="json")
+                                st.markdown("**🔸 原始返回 (Raw Return):**")
+                                st.code(mcp_out_str, language="json")
                         elif step_type == "workflow_error":
                             st.error(f"**工作流失败**: {step.get('error', '')}")
                     
@@ -605,19 +830,8 @@ for msg_idx, msg in enumerate(active_sess["messages"]):
                     with st.expander("📊 查看决策树与调用流程图 (Mermaid)", expanded=False):
                         st.markdown(f"```mermaid\n{mermaid_str}\n```")
             
-            st.markdown(msg["content"])
-            
-            # Render Markdown Table and chart, if present, cleanly outside the thinking box
-            if "|" in msg["content"]:
-                try:
-                    table_part = ""
-                    for line in msg["content"].split("\n"):
-                        if line.strip().startswith("|"):
-                            table_part += line + "\n"
-                    if table_part:
-                        render_markdown_table_chart(table_part)
-                except Exception:
-                    pass
+            # Render assistant reply with perfect order: Table -> ECharts -> Analysis -> Scope
+            render_split_assistant_content(msg["content"])
 
 # Detect new user query
 user_query = st.chat_input("💬 有问题，尽管问...")
@@ -688,28 +902,38 @@ if user_query:
                         step_type = step.get("step_type", "")
                         
                         if step_type == "select_skill":
-                            st.markdown(f"**意图识别意图选择**: `{selected_skill or '直接回答/闲聊'}`")
-                            st.markdown(f"*选择原因*: {step.get('reason', '')}")
+                            st.markdown(f"**意图识别与技能路由**: `{selected_skill or '直接回答/闲聊'}`")
+                            st.markdown(f"*选择依据原因*: {step.get('reason', '')}")
                         elif step_type == "execute_mcp":
-                            st.markdown(f"**步骤 {step_num-1} [{step.get('reason', '')}]**: `{step.get('decision', '')}`")
+                            mcp_name = step.get("decision", "").split("调用原子工具 [")[-1].replace("]", "").split()[0]
+                            s_name = step.get("decision", "").split("[")[1].split("]")[0] if "[" in step.get("decision", "") else f"step_{step_num-1}"
                             
-                            mcp_in_str = json.dumps(step.get("mcp_input", {}), indent=2, ensure_ascii=False)
-                            mcp_out_raw = step.get("mcp_output", "")
-                            try:
-                                mcp_out_parsed = json.loads(mcp_out_raw)
-                                mcp_out_str = json.dumps(mcp_out_parsed, indent=2, ensure_ascii=False)
-                            except Exception:
-                                mcp_out_str = mcp_out_raw
+                            st.markdown(f"**⚙️ {s_name} ({mcp_name})**")
+                            st.caption(f"💡 {step.get('reason', '')}")
+                            
+                            # Render formatted SQL statements directly to normal users if it's N2SQL
+                            if mcp_name == "n2sql" and "sql" in step.get("mcp_output", ""):
+                                try:
+                                    sql_val = json.loads(step.get("mcp_output", "")).get("sql", "")
+                                    if sql_val:
+                                        st.code(sql_val, language="sql")
+                                except Exception:
+                                    pass
+                            
+                            # Pack raw JSON technical parameters behind collapsible expander (Hidden for business users)
+                            with st.expander("🔍 开发者调试报文 (原始输入/输出详情)", expanded=False):
+                                mcp_in_str = json.dumps(step.get("mcp_input", {}), indent=2, ensure_ascii=False)
+                                mcp_out_raw = step.get("mcp_output", "")
+                                try:
+                                    mcp_out_parsed = json.loads(mcp_out_raw)
+                                    mcp_out_str = json.dumps(mcp_out_parsed, indent=2, ensure_ascii=False)
+                                except Exception:
+                                    mcp_out_str = mcp_out_raw
 
-                            st.markdown(f"""
-                            <details>
-                                <summary>查看本步参数传递与返回详情</summary>
-                                <p style="margin: 5px 0 2px 0; font-weight: bold; color: #1a73e8;">输入参数 (Arguments):</p>
-                                <pre>{mcp_in_str}</pre>
-                                <p style="margin: 8px 0 2px 0; font-weight: bold; color: #1a73e8;">输出数据 (Raw Return):</p>
-                                <pre>{mcp_out_str}</pre>
-                            </details>
-                            """, unsafe_allow_html=True)
+                                st.markdown("**🔹 输入参数 (Arguments):**")
+                                st.code(mcp_in_str, language="json")
+                                st.markdown("**🔸 原始返回 (Raw Return):**")
+                                st.code(mcp_out_str, language="json")
                         elif step_type == "workflow_error":
                             st.error(f"**工作流失败**: {step.get('error', '')}")
                     
@@ -760,7 +984,8 @@ if user_query:
                 if not final_answer_text:
                     final_answer_text = "未生成完整的最终解答。"
 
-                st.markdown(final_answer_text)
+                # Render assistant reply with perfect order: Table -> ECharts -> Analysis -> Scope
+                render_split_assistant_content(final_answer_text)
                 
                 # Save assistant response to session state
                 active_sess["messages"].append({
@@ -770,18 +995,6 @@ if user_query:
                     "selected_skill": selected_skill,
                     "question": user_query
                 })
-                
-                # Render Markdown Table and chart, if present, cleanly outside the thinking box
-                if "|" in final_answer_text:
-                    try:
-                        table_part = ""
-                        for line in final_answer_text.split("\n"):
-                            if line.strip().startswith("|"):
-                                table_part += line + "\n"
-                        if table_part:
-                            render_markdown_table_chart(table_part)
-                    except Exception:
-                        pass
 
                 st.balloons()
                 st.rerun()
