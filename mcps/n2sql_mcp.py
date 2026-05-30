@@ -4,6 +4,8 @@ N2SQL MCP
 将自然语言转换为 SQL 语句
 """
 
+from __future__ import annotations
+
 import json
 from typing import TypedDict
 from app_config import get_config, require_real_mode_config
@@ -67,6 +69,7 @@ def n2sql(
         """
 
     info = table_info or default_table_info
+    context_section = f"\n补充上下文：\n{context}\n" if context else ""
 
     # 构建 Prompt
     prompt = f"""你是一个 SQL 生成专家。
@@ -75,6 +78,7 @@ def n2sql(
 
 表结构信息：
 {info}
+{context_section}
 
 生成规则：
 1. 只返回 SQL，不要包含任何解释。

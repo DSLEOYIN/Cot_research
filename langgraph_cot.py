@@ -5,10 +5,12 @@ Core Flow:
 Question → LLM dynamic routing to Skill → Standard Workflow Engine executes steps in Skill (resolving variables) → Streamlit thought chain rendering
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
-from typing import TypedDict, Sequence, Literal, Any
+from typing import TypedDict, Sequence, Literal, Any, Optional, List
 from dataclasses import dataclass
 from app_config import get_config
 
@@ -70,17 +72,113 @@ def resolve_variables(template: Any, context: dict) -> Any:
     return template
 
 
+def _parse_json_result(raw: str) -> Any:
+    try:
+        return json.loads(raw)
+    except Exception:
+        return raw
+
+
+def _strip_sql_fence(text: str) -> str:
+    sql = (text or "").strip()
+    if sql.startswith("```sql"):
+        sql = sql[6:]
+    elif sql.startswith("```"):
+        sql = sql[3:]
+    if sql.endswith("```"):
+        sql = sql[:-3]
+    return sql.strip()
+
+
+def _append_thought(thought_process: list, thought_entry: dict) -> None:
+    thought_process.append(thought_entry)
+    if _ACTIVE_CALLBACK:
+        try:
+            _ACTIVE_CALLBACK(thought_entry)
+        except Exception:
+            pass
+
+
+def _build_mcp_thought(step_num: int, step_name: str, step_item: dict, mcp_name: str, resolved_args: dict, result_str: str, result_data: Any) -> dict:
+    thought = {
+        "step": step_num + 1,
+        "step_type": "execute_mcp",
+        "decision": f"SOP 步骤 {step_num} [{step_name}]：调用原子工具 [{mcp_name}]",
+        "reason": step_item["description"],
+        "mcp_input": resolved_args,
+        "mcp_output": result_str,
+        "llm_output": ""
+    }
+    if mcp_name == "llm" and isinstance(result_data, dict):
+        thought["llm_output"] = result_data.get("text", "")
+    elif mcp_name == "n2sql" and isinstance(result_data, dict):
+        thought["llm_output"] = f"生成的 SQL 语句：\n```sql\n{result_data.get('sql', '')}\n```"
+    return thought
+
+
+def _try_correct_sql(step_num: int, step_name: str, step_item: dict, resolved_args: dict, result_data: dict, context: dict, thought_process: list) -> tuple[str, Any, dict] | None:
+    if step_item.get("mcp") != "sql_executor":
+        return None
+
+    wrong_sql = resolved_args.get("query", "")
+    correction_args = {
+        "prompt": context["input"]["query"],
+        "prompt_type": "sql_correction",
+        "template_vars": {
+            "original_query": context["input"]["query"],
+            "wrong_sql": wrong_sql,
+            "error_message": result_data.get("error") or "",
+            "error_type": result_data.get("error_type") or "",
+        }
+    }
+
+    correction_raw = execute_mcp("llm", **correction_args)
+    correction_data = _parse_json_result(correction_raw)
+    correction_thought = {
+        "step": step_num + 1.1,
+        "step_type": "sql_correction",
+        "decision": f"SOP 步骤 {step_num} [{step_name}]：SQL 执行失败，调用 LLM 纠错",
+        "reason": "SQL 执行失败后自动尝试修正一次",
+        "mcp_input": correction_args,
+        "mcp_output": correction_raw,
+        "llm_output": correction_data.get("text", "") if isinstance(correction_data, dict) else "",
+    }
+    _append_thought(thought_process, correction_thought)
+
+    if not isinstance(correction_data, dict) or correction_data.get("success") is False:
+        return None
+
+    corrected_sql = _strip_sql_fence(correction_data.get("text") or correction_data.get("data") or "")
+    if not corrected_sql:
+        return None
+
+    retry_args = {**resolved_args, "query": corrected_sql}
+    retry_raw = execute_mcp("sql_executor", **retry_args)
+    retry_data = _parse_json_result(retry_raw)
+    retry_thought = {
+        "step": step_num + 1.2,
+        "step_type": "execute_mcp",
+        "decision": f"SOP 步骤 {step_num} [{step_name}]：使用修正 SQL 重试原子工具 [sql_executor]",
+        "reason": "使用 SQL 纠错结果重试一次",
+        "mcp_input": retry_args,
+        "mcp_output": retry_raw,
+        "llm_output": "",
+    }
+    _append_thought(thought_process, retry_thought)
+    return retry_raw, retry_data, retry_args
+
+
 # ==================== LangGraph State ====================
 
 @dataclass
 class AgentState(TypedDict):
     """Agent State"""
     messages: Sequence[dict]           # Conversational history
-    selected_skill: str | None        # Dynamic selected Skill
-    selected_mcp: str | None         # Standard matching mcp (fallback display)
-    mcp_input: dict | None            # Input parameters
-    mcp_result: str | None            # Executed result
-    thought_process: list[dict]       # Full visual thought chain
+    selected_skill: Optional[str]      # Dynamic selected Skill
+    selected_mcp: Optional[str]        # Standard matching mcp (fallback display)
+    mcp_input: Optional[dict]          # Input parameters
+    mcp_result: Optional[str]          # Executed result
+    thought_process: List[dict]        # Full visual thought chain
     step_type: str                   # Current step type
     is_final: bool                   # Is workflow complete
 
@@ -249,10 +347,7 @@ def step2_run_workflow(state: AgentState) -> AgentState:
         print(f"[Workflow Engine] Executing Step {step_num}: {step_name} via {mcp_name}...")
         result_str = execute_mcp(mcp_name, **resolved_args)
 
-        try:
-            result_data = json.loads(result_str)
-        except Exception:
-            result_data = result_str
+        result_data = _parse_json_result(result_str)
 
         # Write step output back to global context
         context["steps"][step_name] = {
@@ -263,34 +358,22 @@ def step2_run_workflow(state: AgentState) -> AgentState:
         last_mcp = mcp_name
         last_args = resolved_args
 
-        # 3. Compile thought step object for Streamlit front-end
-        step_thought = {
-            "step": step_num + 1,  # step 1 is the skill router
-            "step_type": "execute_mcp",
-            "decision": f"SOP 步骤 {step_num} [{step_name}]：调用原子工具 [{mcp_name}]",
-            "reason": step_item["description"],
-            "mcp_input": resolved_args,
-            "mcp_output": result_str,
-            "llm_output": ""
-        }
-
-        # If LLM MCP is called, extract output text for clear display
-        if mcp_name == "llm" and isinstance(result_data, dict):
-            step_thought["llm_output"] = result_data.get("text", "")
-        # If N2SQL generated SQL, put in llm_output for beautiful syntax highlighting
-        elif mcp_name == "n2sql" and isinstance(result_data, dict):
-            step_thought["llm_output"] = f"生成的 SQL 语句：\n```sql\n{result_data.get('sql', '')}\n```"
-
-        thought_process.append(step_thought)
-
-        # Trigger streaming callback
-        if _ACTIVE_CALLBACK:
-            try:
-                _ACTIVE_CALLBACK(step_thought)
-            except Exception:
-                pass
+        step_thought = _build_mcp_thought(step_num, step_name, step_item, mcp_name, resolved_args, result_str, result_data)
+        _append_thought(thought_process, step_thought)
 
         if isinstance(result_data, dict) and result_data.get("success") is False:
+            correction_result = _try_correct_sql(step_num, step_name, step_item, resolved_args, result_data, context, thought_process)
+            if correction_result:
+                result_str, result_data, resolved_args = correction_result
+                context["steps"][step_name] = {
+                    "output": result_data
+                }
+                last_step_output = result_str
+                last_mcp = mcp_name
+                last_args = resolved_args
+                if not (isinstance(result_data, dict) and result_data.get("success") is False):
+                    continue
+
             error_message = result_data.get("error") or "MCP 执行失败"
             error_type = result_data.get("error_type") or "MCPError"
             final_answer = f"工作流已中断：步骤 {step_num} [{step_name}] 调用 {mcp_name} 失败。错误类型：{error_type}。错误信息：{error_message}"

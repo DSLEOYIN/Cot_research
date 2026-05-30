@@ -76,6 +76,18 @@ class DifyConfig:
 
 
 @dataclass(frozen=True)
+class WebMCPConfig:
+    enabled: bool
+    provider: str
+    base_url: str
+    api_key: str | None
+    search_endpoint: str
+    timeout: int
+    top_k: int
+    proxy: str | None
+
+
+@dataclass(frozen=True)
 class AppConfig:
     app_mode: str
     mock_enabled: bool
@@ -83,6 +95,7 @@ class AppConfig:
     database: DatabaseConfig
     ssh: SSHConfig
     dify: DifyConfig
+    web_mcp: WebMCPConfig
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -148,7 +161,7 @@ def _parse_ssh_config(root_dir: Path) -> SSHConfig:
     try:
         content = env_path.read_text(encoding="utf-8")
         
-        # Regex matching an IP and port (e.g. 10.30.8.37：9081)
+        # Regex matching an IP and port (e.g. 192.0.2.10：22)
         ip_port_match = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})[:：](\d+)", content)
         if ip_port_match:
             ssh_host = ip_port_match.group(1)
@@ -159,7 +172,7 @@ def _parse_ssh_config(root_dir: Path) -> SSHConfig:
         if user_match:
             ssh_user = user_match.group(1).strip()
             
-        # Search for password: "密码：^Dskj@Model1" or "密码:^Dskj@Model1"
+        # Search for password: "密码：your-password" or "密码:your-password"
         password_match = re.search(r"(?:密码|password|pass)[:：\s=]+([^\s\r\n]+)", content)
         if password_match:
             ssh_password = password_match.group(1).strip()
@@ -208,16 +221,27 @@ def get_config(db_uri: str | None = None) -> AppConfig:
 
     ssh = _parse_ssh_config(ROOT_DIR)
 
-    dify_enabled = _env_bool("DIFY_ENABLED", True)
-    dify_base_url = os.getenv("DIFY_BASE_URL", "http://10.30.11.215:9879").rstrip("/")
-    dify_api_key = os.getenv("DIFY_API_KEY", "dataset-S5L6smkj8ovnSz8rMl5DZUvj")
-    dify_dataset_id = os.getenv("DIFY_DATASET_ID", "ffa84ba6-4ec9-44a0-8f6d-594b27f7a829")
+    dify_enabled = _env_bool("DIFY_ENABLED", False)
+    dify_base_url = os.getenv("DIFY_BASE_URL", "").rstrip("/")
+    dify_api_key = os.getenv("DIFY_API_KEY")
+    dify_dataset_id = os.getenv("DIFY_DATASET_ID")
 
     dify = DifyConfig(
-        enabled=dify_enabled and bool(dify_api_key and dify_dataset_id),
+        enabled=dify_enabled and bool(dify_base_url and dify_api_key and dify_dataset_id),
         base_url=dify_base_url,
         api_key=dify_api_key,
         dataset_id=dify_dataset_id,
+    )
+
+    web_mcp = WebMCPConfig(
+        enabled=_env_bool("WEB_MCP_ENABLED", False),
+        provider=os.getenv("WEB_MCP_PROVIDER", "tavily").strip().lower(),
+        base_url=os.getenv("WEB_MCP_BASE_URL", "https://api.tavily.com").rstrip("/"),
+        api_key=os.getenv("WEB_MCP_API_KEY"),
+        search_endpoint=os.getenv("WEB_MCP_SEARCH_ENDPOINT", "/search"),
+        timeout=_env_int("WEB_MCP_TIMEOUT", 15),
+        top_k=_env_int("WEB_MCP_TOP_K", 5),
+        proxy=os.getenv("WEB_MCP_PROXY") or None,
     )
 
     return AppConfig(
@@ -227,6 +251,7 @@ def get_config(db_uri: str | None = None) -> AppConfig:
         database=database,
         ssh=ssh,
         dify=dify,
+        web_mcp=web_mcp,
     )
 
 
@@ -254,7 +279,7 @@ def _allowed_tables() -> tuple[str, ...]:
     )
 
 
-def require_real_mode_config(config: AppConfig, *, need_model: bool = False, need_db: bool = False) -> str | None:
+def require_real_mode_config(config: AppConfig, *, need_model: bool = False, need_db: bool = False, need_web: bool = False) -> str | None:
     if need_model and not config.model.api_key:
         return "real 模式缺少 DEEPSEEK_API_KEY 或 OPENAI_API_KEY"
 
@@ -271,5 +296,19 @@ def require_real_mode_config(config: AppConfig, *, need_model: bool = False, nee
         ]
         if missing:
             return f"real 模式缺少数据库配置: {', '.join(missing)}"
+
+    if need_web:
+        web_mcp = config.web_mcp
+        missing = []
+        if not web_mcp.enabled:
+            missing.append("WEB_MCP_ENABLED=true")
+        if not web_mcp.provider:
+            missing.append("WEB_MCP_PROVIDER")
+        if not web_mcp.base_url:
+            missing.append("WEB_MCP_BASE_URL")
+        if not web_mcp.api_key:
+            missing.append("WEB_MCP_API_KEY")
+        if missing:
+            return f"real 模式缺少联网 MCP 配置: {', '.join(missing)}"
 
     return None

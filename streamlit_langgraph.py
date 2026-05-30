@@ -9,6 +9,8 @@ Features:
 - Streamlined sidebar: hides advanced schemas, white-lists, and registers inside a single "Advanced Developer Tools" box.
 """
 
+from __future__ import annotations
+
 import streamlit as st
 import json
 import os
@@ -795,6 +797,14 @@ for msg_idx, msg in enumerate(active_sess["messages"]):
                                 st.code(mcp_out_str, language="json")
                         elif step_type == "workflow_error":
                             st.error(f"**工作流失败**: {step.get('error', '')}")
+                        elif step_type == "sql_correction":
+                            st.markdown("**🧩 SQL 自动纠错**")
+                            st.caption(f"💡 {step.get('reason', '')}")
+                            if step.get("llm_output"):
+                                st.code(step.get("llm_output"), language="sql")
+                            with st.expander("🔍 开发者调试报文 (原始输入/输出详情)", expanded=False):
+                                st.code(json.dumps(step.get("mcp_input", {}), indent=2, ensure_ascii=False), language="json")
+                                st.code(step.get("mcp_output", ""), language="json")
                     
                     # Append Mermaid
                     mermaid_code = ["graph TD"]
@@ -871,6 +881,10 @@ if user_query:
                         status_box.write(step.get("llm_output"))
                 elif step_type == "workflow_error":
                     status_box.write(f"❌ **[工作流中断]** {decision}")
+                elif step_type == "sql_correction":
+                    status_box.write(f"🧩 **[SQL纠错]** {decision}")
+                    if step.get("llm_output"):
+                        status_box.write(f"```sql\n{step.get('llm_output')}\n```")
                 elif step_type == "final_answer":
                     status_box.write(f"✅ **[分析完毕]** 口径对齐与结果解读就绪")
 
@@ -936,6 +950,11 @@ if user_query:
                                 st.code(mcp_out_str, language="json")
                         elif step_type == "workflow_error":
                             st.error(f"**工作流失败**: {step.get('error', '')}")
+                        elif step_type == "sql_correction":
+                            st.markdown("**🧩 SQL 自动纠错**")
+                            st.caption(f"💡 {step.get('reason', '')}")
+                            if step.get("llm_output"):
+                                st.code(step.get("llm_output"), language="sql")
                     
                     # Append Mermaid
                     mermaid_code = ["graph TD"]

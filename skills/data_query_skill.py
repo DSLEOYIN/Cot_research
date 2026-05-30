@@ -5,6 +5,8 @@
 意图识别 → 知识检索 → N2SQL → SQL生成 → SQL执行 → 数据解读 → 数据口径
 """
 
+from __future__ import annotations
+
 from skills import register_skill
 
 SKILL_CONFIG = {
@@ -63,7 +65,7 @@ SKILL_CONFIG = {
                 "mcp": "n2sql",
                 "arguments": {
                     "query": "{{input.query}}",
-                    "table_info": "{{steps.knowledge_retrieval.output}}"
+                    "context": "{{steps.knowledge_retrieval.output}}"
                 }
             },
             {
@@ -82,8 +84,12 @@ SKILL_CONFIG = {
                 "description": "数据解读 - LLM分析查询结果",
                 "mcp": "llm",
                 "arguments": {
-                    "prompt": "用户输入：{{input.query}}\n数据结果：{{steps.sql_execution.output.data}}\nSQL：{{steps.n2sql_generation.output.sql}}",
-                    "prompt_type": "data_analysis"
+                    "prompt": "{{input.query}}",
+                    "prompt_type": "data_analysis",
+                    "template_vars": {
+                        "sql_data": "{{steps.sql_execution.output.data}}",
+                        "sql": "{{steps.n2sql_generation.output.sql}}"
+                    }
                 }
             },
             {
@@ -92,8 +98,12 @@ SKILL_CONFIG = {
                 "description": "数据口径 - 生成统计解释说明",
                 "mcp": "llm",
                 "arguments": {
-                    "prompt": "用户输入：{{input.query}}\nSQL：{{steps.n2sql_generation.output.sql}}",
-                    "prompt_type": "scope_explanation"
+                    "prompt": "{{input.query}}",
+                    "prompt_type": "scope_explanation",
+                    "template_vars": {
+                        "sql": "{{steps.n2sql_generation.output.sql}}",
+                        "table_info": "{{steps.knowledge_retrieval.output}}"
+                    }
                 }
             }
         ]
@@ -112,4 +122,3 @@ SKILL_CONFIG = {
 }
 
 register_skill(SKILL_CONFIG)
-

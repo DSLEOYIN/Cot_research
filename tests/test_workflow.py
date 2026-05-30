@@ -1,4 +1,5 @@
 from langgraph_cot import run_agent
+import json
 
 
 def test_mock_data_query_workflow_runs_to_final_answer(monkeypatch):
@@ -51,3 +52,65 @@ def test_workflow_stops_on_mcp_failure(monkeypatch):
     assert result["thought_process"][-1]["step_type"] == "workflow_error"
     assert "工作流已中断" in result["messages"][-1]["content"]
     assert "ConfigurationError" in result["messages"][-1]["content"]
+
+
+def test_workflow_retries_sql_execution_once_after_correction(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    calls = []
+
+    def fake_execute_mcp(name, **kwargs):
+        calls.append((name, kwargs))
+        if name == "llm" and kwargs.get("prompt_type") == "intent_classification":
+            return json.dumps({"success": True, "text": "{\"problem_type\":\"1\"}", "error": None, "error_type": None})
+        if name == "knowledge_retrieval":
+            return json.dumps({"success": True, "results": [{"content": "terminal_qty 是终端量"}], "error": None, "error_type": None})
+        if name == "n2sql":
+            return json.dumps({"success": True, "sql": "SELECT bad_col FROM v_dm_sal_wolesale_terminal_dly", "error": None, "error_type": None})
+        if name == "sql_executor" and "bad_col" in kwargs["query"]:
+            return json.dumps({
+                "success": False,
+                "data": None,
+                "error": "Unknown column 'bad_col'",
+                "error_type": "OperationalError",
+                "row_count": None,
+            })
+        if name == "llm" and kwargs.get("prompt_type") == "sql_correction":
+            return json.dumps({
+                "success": True,
+                "text": "SELECT terminal_qty AS '终端量' FROM v_dm_sal_wolesale_terminal_dly",
+                "error": None,
+                "error_type": None,
+            })
+        if name == "sql_executor":
+            return json.dumps({
+                "success": True,
+                "data": "| 终端量 |\n| --- |\n| 1280 |",
+                "error": None,
+                "error_type": None,
+                "row_count": 1,
+            })
+        if name == "llm" and kwargs.get("prompt_type") == "data_analysis":
+            return json.dumps({"success": True, "text": "修正后查询成功。", "error": None, "error_type": None})
+        if name == "llm" and kwargs.get("prompt_type") == "scope_explanation":
+            return json.dumps({"success": True, "text": "统计终端量。", "error": None, "error_type": None})
+        raise AssertionError(f"Unexpected MCP call: {name}, {kwargs}")
+
+    monkeypatch.setattr("langgraph_cot.execute_mcp", fake_execute_mcp)
+
+    result = run_agent("本月中东公司销量多少？")
+
+    sql_calls = [kwargs["query"] for name, kwargs in calls if name == "sql_executor"]
+    correction_calls = [kwargs for name, kwargs in calls if name == "llm" and kwargs.get("prompt_type") == "sql_correction"]
+
+    assert "error" not in result
+    assert result["is_final"] is True
+    assert result["thought_process"][-1]["step_type"] == "final_answer"
+    assert sql_calls == [
+        "SELECT bad_col FROM v_dm_sal_wolesale_terminal_dly",
+        "SELECT terminal_qty AS '终端量' FROM v_dm_sal_wolesale_terminal_dly",
+    ]
+    assert len(correction_calls) == 1
+    assert "Unknown column" in correction_calls[0]["template_vars"]["error_message"]
+    assert any(step.get("step_type") == "sql_correction" for step in result["thought_process"])

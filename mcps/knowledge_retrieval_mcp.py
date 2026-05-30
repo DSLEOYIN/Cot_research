@@ -4,6 +4,8 @@
 从向量数据库检索相关知识
 """
 
+from __future__ import annotations
+
 import json
 from typing import TypedDict
 from mcps import register_mcp
@@ -72,8 +74,10 @@ def knowledge_retrieval(
         import httpx
         from urllib.parse import urlparse
         parsed_url = urlparse(config.dify.base_url)
-        dify_host = parsed_url.hostname or "10.30.11.215"
+        dify_host = parsed_url.hostname
         dify_port = parsed_url.port or 9879
+        if not dify_host:
+            raise ValueError("DIFY_BASE_URL 缺少有效主机名")
 
         try:
             # 建立 SSH 隧道

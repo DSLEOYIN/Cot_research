@@ -4,8 +4,8 @@
 
 > [!IMPORTANT]
 > **API 端口与鉴权关键提示**
-> 1. **端口必填**：服务器 API 通信端口必须使用 `9879`（`http://10.30.11.215:9879`），切勿使用默认的 `80` 端口，否则会导致 Timeout。
-> 2. **全局 Header**：所有请求必须携带 `Authorization: Bearer dataset-S5L6smkj8ovnSz8rMl5DZUvj` 以及 `Content-Type: application/json`。
+> 1. **端口必填**：服务器 API 通信端口必须使用实际部署端口（例如 `http://your-dify-host:9879`），切勿使用默认的 `80` 端口，否则可能导致 Timeout。
+> 2. **全局 Header**：所有请求必须携带 `Authorization: Bearer <DIFY_API_KEY>` 以及 `Content-Type: application/json`。真实 Key 只允许写入 `.env` 或运行环境变量。
 
 ---
 

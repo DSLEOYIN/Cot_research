@@ -4,6 +4,8 @@
 文本摘要、情感分析、关键词提取等
 """
 
+from __future__ import annotations
+
 import json
 from typing import TypedDict, Literal
 from mcps import register_mcp

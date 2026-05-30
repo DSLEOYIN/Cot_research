@@ -14,6 +14,7 @@ MCP (Model Context Protocol) 是底层工具执行单元。每个 MCP 封装一�
 | time | time_mcp.py | 获取当前时间 |
 | text_analysis | text_analysis_mcp.py | 文本分析（摘要/情感/关键词）|
 | n2sql | n2sql_mcp.py | 自然语言转 SQL |
+| web_search | web_search_mcp.py | 联网检索（Tavily） |
 
 ## 添加新的 MCP
 

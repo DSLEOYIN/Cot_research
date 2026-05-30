@@ -9,7 +9,7 @@
 ## 1. 核心工作与技术突破总结
 
 ### 1.1 堡垒机 SSH 隧道自动建立与安全生命周期管理
-* **物理挑战**：StarRocks 分析库（`10.30.16.21:6033`）以及 Dify 知识库检索服务（`10.30.11.215:9879`）均位于专有局域网私有网段内，外部必须通过堡垒机（`10.30.8.37:9081`）进行代理中转。
+* **物理挑战**：StarRocks 分析库以及 Dify 知识库检索服务均位于专有局域网私有网段内，外部必须通过堡垒机进行代理中转。具体主机、端口和凭据只应写入 `.env` 或运行环境变量。
 * **技术实现**：
   - 在 [`sql_executor_mcp.py`](file:///d:/工作/大模型应用学习/Cot_research/mcps/sql_executor_mcp.py) 与 [`knowledge_retrieval_mcp.py`](file:///d:/工作/大模型应用学习/Cot_research/mcps/knowledge_retrieval_mcp.py) 中，系统集成了 `SSHTunnelForwarder`。
   - **自动路由与解耦**：当检测到 `config.ssh.enabled` 为真时，系统会自动在本地随机空闲端口上建立一个到目标堡垒机的 SSH 安全隧道，使客户端能够直接通过 `127.0.0.1:{local_port}` 与私网主机通信。

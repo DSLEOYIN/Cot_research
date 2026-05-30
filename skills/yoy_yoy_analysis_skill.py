@@ -4,6 +4,8 @@
 专门处理同比、环比相关的查询与智能解读
 """
 
+from __future__ import annotations
+
 from skills import register_skill
 
 SKILL_CONFIG = {
@@ -84,4 +86,3 @@ SKILL_CONFIG = {
 }
 
 register_skill(SKILL_CONFIG)
-

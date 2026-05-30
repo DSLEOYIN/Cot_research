@@ -5,6 +5,8 @@ MCPs - 工具执行层
 用户可自行添加新的 MCP 文件来扩展系统工具
 """
 
+from __future__ import annotations
+
 from typing import Callable, Any, Dict
 import importlib
 import sys
@@ -58,7 +60,7 @@ def get_mcp(name: str) -> dict | None:
 def list_mcps() -> list[dict]:
     """列出所有已注册的 MCP 配置"""
     # 强制预加载所有内置的 MCP 模块
-    modules = ["sql_executor", "knowledge_retrieval", "llm", "time", "text_analysis", "n2sql"]
+    modules = ["sql_executor", "knowledge_retrieval", "llm", "time", "text_analysis", "n2sql", "web_search"]
     for mod in modules:
         if mod not in MCP_REGISTRY:
             try:
@@ -141,5 +143,6 @@ from . import llm_mcp
 from . import time_mcp
 from . import text_analysis_mcp
 from . import n2sql_mcp
+from . import web_search_mcp
 
 __all__ = ["MCP_REGISTRY", "get_mcp", "list_mcps", "list_mcp_names", "execute_mcp"]

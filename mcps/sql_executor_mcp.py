@@ -4,6 +4,8 @@ SQL执行器 MCP
 执行 SQL 查询，支持重试机制
 """
 
+from __future__ import annotations
+
 import json
 import re
 from typing import TypedDict, Literal

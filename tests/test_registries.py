@@ -3,7 +3,7 @@ from skills import get_skill, list_skill_names, list_skills
 
 
 def test_mcp_registry_loads_builtin_mcps():
-    expected = {"sql_executor", "knowledge_retrieval", "llm", "time", "text_analysis", "n2sql"}
+    expected = {"sql_executor", "knowledge_retrieval", "llm", "time", "text_analysis", "n2sql", "web_search"}
 
     names = set(list_mcp_names())
 

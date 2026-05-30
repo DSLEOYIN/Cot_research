@@ -11,15 +11,15 @@
 * **目标文本格式**：
   ```
   本地连SR的ssh配置
-  10.30.8.37：9081
-  账号：model
-  密码：^Dskj@Model1
+  <SSH_HOST>：<SSH_PORT>
+  账号：<SSH_USER>
+  密码：<SSH_PASSWORD>
   ```
 * **实现逻辑**：利用正则表达式对 `.env` 进行全文扫描，提取 IP 和端口（支持中文冒号 `：` 与英文冒号 `:`），并提取“账号”和“密码”字样后的有效字符，封装为 `SSHConfig`。同时，依然保持对标准 `SSH_HOST`、`SSH_PORT`、`SSH_USER`、`SSH_PASSWORD` 环境变量的兼容。
 
 ### 1.2 编程式动态数据库 SSH 隧道
 在 [sql_executor_mcp.py](file:///d:/%E5%B7%A5%E4%BD%9C/%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%BA%94%E7%94%A8%E5%AD%A6%E4%B9%A0/Cot_research/mcps/sql_executor_mcp.py) 中，为避免用户手动维护外部 SSH 隧道的繁琐步骤，我们将隧道建立完全自动化、编程式集成：
-* 每次调用 `sql_executor` 查询数据库时，如果检测到 `config.ssh.enabled` 为真，则使用 `sshtunnel.SSHTunnelForwarder` 动态建立一个从本地随机空闲端口映射到目标数据库 `10.30.16.21:6033` 的安全 SSH 通道。
+* 每次调用 `sql_executor` 查询数据库时，如果检测到 `config.ssh.enabled` 为真，则使用 `sshtunnel.SSHTunnelForwarder` 动态建立一个从本地随机空闲端口映射到目标数据库的安全 SSH 通道。
 * 数据库驱动（`pymysql`）随后通过 `127.0.0.1:{local_port}` 进行超高速连接，数据读取完毕后，在 `finally` 块中**严格断开数据库连接并安全停用 SSH 隧道**，避免连接挂起和端口冲突。
 
 ### 1.3 LLM 模型名称动态解析与修正
@@ -70,6 +70,5 @@ Result: PASS
 
 2. **Dify 知识库 API 检索验证**
    - 编写并运行了测试脚本 `scratch/test_dify.py`，模拟真实业务查询。
-   - **实测结果**：检索服务通过安全 SSH 隧道建立与 Dify 私有局域网主机 `10.30.11.215:9879` 的通信，极速拉取并成功召回了匹配的 SQL 问答对片段。
+   - **实测结果**：检索服务通过安全 SSH 隧道建立与 Dify 私有局域网主机的通信，极速拉取并成功召回了匹配的 SQL 问答对片段。
    - 在 `check_mcps.py --mode real` 验证中，`knowledge_retrieval` 模块完美运行。这表明无论表结构推理、同环比口径，还是特定的复杂业务 SQL，都将享受到 Dify 高质量问答对检索的有力加持。
-

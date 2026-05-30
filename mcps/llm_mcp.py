@@ -4,9 +4,15 @@ LLM 调用 MCP
 封装大语言模型调用，支持多种 Prompt 类型
 """
 
+from __future__ import annotations
+
 import json
 import os
-from typing import TypedDict, Literal, NotRequired
+from typing import TypedDict, Literal
+try:
+    from typing import NotRequired
+except ImportError:  # Python 3.9
+    from typing_extensions import NotRequired
 from app_config import get_config, require_real_mode_config
 from mcps import register_mcp
 
@@ -133,7 +139,8 @@ def llm(
     ] | None = None,
     model: str = "DeepSeek-V3.1",
     temperature: float = 0.7,
-    max_tokens: int = 4096
+    max_tokens: int = 4096,
+    template_vars: dict | None = None
 ) -> str:
     """
     LLM 调用 MCP
@@ -150,17 +157,22 @@ def llm(
     """
     # 如果有 prompt_type，使用对应模板
     if prompt_type and prompt_type in PROMPT_TEMPLATES:
+        values = {
+            "user_query": prompt,
+            "user_input": prompt,
+            "table_info": "",
+            "sql": "",
+            "sql_data": "",
+            "original_query": "",
+            "wrong_sql": "",
+            "error_message": "",
+            "error_type": "",
+            "data": ""
+        }
+        if template_vars:
+            values.update(template_vars)
         full_prompt = PROMPT_TEMPLATES[prompt_type].format(
-            user_query=prompt,
-            user_input=prompt,
-            table_info="",  # 由调用方填充
-            sql="",
-            sql_data="",
-            original_query="",
-            wrong_sql="",
-            error_message="",
-            error_type="",
-            data=""
+            **values
         )
     else:
         full_prompt = prompt
@@ -327,6 +339,10 @@ MCP_CONFIG = {
                 "type": "integer",
                 "default": 4096,
                 "description": "最大Token数"
+            },
+            "template_vars": {
+                "type": "object",
+                "description": "填充 Prompt 模板的结构化变量，例如 sql、sql_data、table_info"
             }
         },
         "required": ["prompt"]

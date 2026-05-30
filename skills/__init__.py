@@ -5,6 +5,8 @@ Skills - 业务能力单元
 用户可自行添加新的 Skill 文件来扩展系统能力
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 # Skill 注册表

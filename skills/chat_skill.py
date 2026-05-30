@@ -4,6 +4,8 @@
 处理非数据查询的一般对话，如闲聊、常识问答等
 """
 
+from __future__ import annotations
+
 from skills import register_skill
 
 SKILL_CONFIG = {
@@ -51,4 +53,3 @@ SKILL_CONFIG = {
 }
 
 register_skill(SKILL_CONFIG)
-

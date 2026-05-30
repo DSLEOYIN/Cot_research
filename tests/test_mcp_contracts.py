@@ -24,6 +24,7 @@ def test_all_mcps_return_standard_contract_in_mock_mode(monkeypatch):
         ("n2sql", {"query": "本月中东公司销量多少？"}),
         ("sql_executor", {"query": "SELECT 1", "format": "md"}),
         ("knowledge_retrieval", {"query": "终端量", "dataset_ids": ["字段标准查询名检索"]}),
+        ("web_search", {"query": "Tavily search MCP", "max_results": 2}),
         ("time", {"format": "%Y-%m-%d %H:%M:%S", "timezone": "Asia/Shanghai"}),
         ("text_analysis", {"text": "本月销量同比增长15%", "task": "sentiment"}),
     ]
@@ -46,6 +47,7 @@ def test_real_mode_missing_external_config_fails_cleanly(monkeypatch):
         "DB_PASSWORD",
         "DB_NAME",
         "DB_URI",
+        "WEB_MCP_API_KEY",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -53,6 +55,7 @@ def test_real_mode_missing_external_config_fails_cleanly(monkeypatch):
         ("llm", {"prompt": "hello", "prompt_type": "chat"}),
         ("n2sql", {"query": "本月中东公司销量多少？"}),
         ("sql_executor", {"query": "SELECT 1", "format": "md"}),
+        ("web_search", {"query": "latest EV news"}),
     ]
 
     for name, kwargs in cases:
@@ -61,6 +64,48 @@ def test_real_mode_missing_external_config_fails_cleanly(monkeypatch):
         assert data["success"] is False, name
         assert data["error"]
         assert data["error_type"] == "ConfigurationError"
+
+
+def test_web_search_calls_tavily_when_configured(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "real")
+    monkeypatch.setenv("MOCK_ENABLED", "false")
+    monkeypatch.setenv("WEB_MCP_ENABLED", "true")
+    monkeypatch.setenv("WEB_MCP_PROVIDER", "tavily")
+    monkeypatch.setenv("WEB_MCP_API_KEY", "test-tavily-key")
+    monkeypatch.setenv("WEB_MCP_BASE_URL", "https://api.tavily.com")
+    monkeypatch.setenv("WEB_MCP_SEARCH_ENDPOINT", "/search")
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "answer": "summary",
+                "results": [
+                    {"title": "Result 1", "url": "https://example.com/1", "content": "Snippet 1", "score": 0.9}
+                ],
+            }
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    data = parse_result(execute_mcp("web_search", query="latest EV news", max_results=1))
+
+    assert data["success"] is True
+    assert captured["url"] == "https://api.tavily.com/search"
+    assert captured["headers"]["Authorization"] == "Bearer test-tavily-key"
+    assert captured["json"]["query"] == "latest EV news"
+    assert captured["json"]["max_results"] == 1
+    assert data["results"][0]["url"] == "https://example.com/1"
 
 
 def test_sql_executor_blocks_unsafe_sql(monkeypatch):

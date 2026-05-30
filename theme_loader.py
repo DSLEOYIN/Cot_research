@@ -5,6 +5,8 @@ Handles reading, writing, and formatting of multi-scenario theme schemas (theme_
 Provides environment-level hot reload of active tables and DDLs at runtime.
 """
 
+from __future__ import annotations
+
 import os
 import json
 from pathlib import Path

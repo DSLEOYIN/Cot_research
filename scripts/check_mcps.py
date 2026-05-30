@@ -34,6 +34,7 @@ EXTERNAL_ENV_KEYS = [
     "DB_PASSWORD",
     "DB_NAME",
     "DB_URI",
+    "WEB_MCP_API_KEY",
 ]
 
 
@@ -50,6 +51,7 @@ MOCK_CASES = [
     CheckCase("n2sql", {"query": "monthly Middle East sales"}, True, ("success", "sql", "error", "error_type")),
     CheckCase("sql_executor", {"query": "SELECT 1", "format": "md"}, True),
     CheckCase("knowledge_retrieval", {"query": "terminal sales", "dataset_ids": ["table usage"]}, True),
+    CheckCase("web_search", {"query": "Tavily search MCP", "max_results": 2}, True),
     CheckCase("time", {"format": "%Y-%m-%d %H:%M:%S", "timezone": "Asia/Shanghai"}, True),
     CheckCase("text_analysis", {"text": "Sales increased by 15% this month.", "task": "sentiment"}, True),
 ]
@@ -59,6 +61,7 @@ REAL_MISSING_CONFIG_CASES = [
     CheckCase("llm", {"prompt": "hello", "prompt_type": "chat"}, False),
     CheckCase("n2sql", {"query": "monthly Middle East sales"}, False, ("success", "sql", "error", "error_type")),
     CheckCase("sql_executor", {"query": "SELECT 1", "format": "md"}, False),
+    CheckCase("web_search", {"query": "latest EV news"}, False),
 ]
 
 
@@ -76,6 +79,7 @@ REAL_CASES = [
     CheckCase("n2sql", {"query": "本月中东公司销量多少？"}, True, ("success", "sql", "error", "error_type")),
     CheckCase("sql_executor", {"query": "SELECT 1", "format": "json"}, True),
     CheckCase("knowledge_retrieval", {"query": "终端量", "dataset_ids": ["字段标准查询名检索"]}, True),
+    CheckCase("web_search", {"query": "Tavily search MCP", "max_results": 2}, True),
     CheckCase("time", {"format": "%Y-%m-%d %H:%M:%S", "timezone": "Asia/Shanghai"}, True),
     CheckCase("text_analysis", {"text": "本月销量同比增长15%", "task": "sentiment"}, True),
 ]
