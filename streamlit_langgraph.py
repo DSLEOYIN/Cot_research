@@ -12,6 +12,7 @@ Features:
 from __future__ import annotations
 
 import streamlit as st
+import html
 import json
 import os
 import uuid
@@ -266,6 +267,85 @@ def render_split_assistant_content(final_answer_text: str):
         st.markdown(f"> {scope_section.lstrip('>').strip()}")
 
 
+def build_codex_thought_timeline_html(thought_process, selected_skill=None, question="", open_by_default=False, is_running=False):
+    """Build compact Codex-style execution timeline markup."""
+    if not thought_process:
+        running_text = "正在等待执行步骤..." if is_running else "暂无执行明细"
+        thought_process = [{"step_type": "pending", "reason": running_text}]
+
+    rows = []
+    for step in thought_process:
+        step_type = step.get("step_type", "")
+        title = ""
+        meta = ""
+        body = ""
+
+        if step_type == "select_skill":
+            title = "意图识别"
+            meta = selected_skill or "直接回答"
+            body = step.get("reason", "") or step.get("decision", "")
+        elif step_type == "execute_mcp":
+            decision = step.get("decision", "")
+            mcp_name = decision.split("调用原子工具 [")[-1].replace("]", "").split()[0] if "调用原子工具 [" in decision else "mcp"
+            skill_step = decision.split("[")[1].split("]")[0] if "[" in decision else f"step_{step.get('step', 0)}"
+            title = skill_step
+            meta = mcp_name
+            body = step.get("reason", "") or decision
+        elif step_type == "workflow_error":
+            title = "工作流中断"
+            meta = "error"
+            body = step.get("error", "") or step.get("decision", "")
+        elif step_type == "sql_correction":
+            title = "SQL 自动纠错"
+            meta = "retry"
+            body = step.get("reason", "") or step.get("decision", "")
+        elif step_type == "final_answer":
+            title = "生成回答"
+            meta = "complete"
+            body = "已完成结果整理与业务解读"
+        elif step_type == "pending":
+            title = "准备中"
+            meta = "running"
+            body = step.get("reason", "")
+        else:
+            title = step_type or "执行步骤"
+            meta = f"step {step.get('step', '')}".strip()
+            body = step.get("reason", "") or step.get("decision", "")
+
+        rows.append(
+            "<div class='codex-trace-row'>"
+            "<span class='codex-trace-dot'></span>"
+            "<div class='codex-trace-content'>"
+            f"<div class='codex-trace-line'><span>{html.escape(title)}</span><code>{html.escape(meta)}</code></div>"
+            f"<p>{html.escape(body)}</p>"
+            "</div>"
+            "</div>"
+        )
+
+    question_label = html.escape(question[:36] + ("..." if len(question) > 36 else "")) if question else "本次请求"
+    open_attr = " open" if open_by_default else ""
+    running_class = " is-running" if is_running else ""
+    return f"""
+<details class="codex-trace{running_class}"{open_attr}>
+  <summary>
+    <span class="codex-trace-title">思考与执行明细</span>
+    <span class="codex-trace-subtitle">{question_label}</span>
+  </summary>
+  <div class="codex-trace-panel">
+    {''.join(rows)}
+  </div>
+</details>
+"""
+
+
+def render_codex_thought_timeline(thought_process, selected_skill=None, question="", open_by_default=False, is_running=False):
+    """Render execution details as a compact Codex-style timeline."""
+    st.markdown(
+        build_codex_thought_timeline_html(thought_process, selected_skill, question, open_by_default, is_running),
+        unsafe_allow_html=True,
+    )
+
+
 # ==================== Page Configuration ====================
 st.set_page_config(
     page_title="ChatBI 智能数据助理",
@@ -403,24 +483,35 @@ st.markdown("""
     }
     
     /* Sidebar Action/Control Row Buttons */
-    div.sidebar-action-bar button {
+    section[data-testid="stSidebar"] div[data-testid="stColumn"] div.stButton button {
         background-color: #ffffff !important;
         border: 1px solid #e3e3e3 !important;
-        border-radius: 6px !important;
+        border-radius: 8px !important;
         color: #374151 !important;
-        padding: 0.25rem 0.5rem !important;
-        min-height: auto !important;
+        padding: 0 !important;
+        height: 34px !important;
+        min-height: 34px !important;
         font-size: 0.78rem !important;
         text-align: center !important;
         justify-content: center !important;
+        align-items: center !important;
         font-weight: 500 !important;
         box-shadow: none !important;
         width: 100% !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
     }
-    div.sidebar-action-bar button:hover {
+    section[data-testid="stSidebar"] div[data-testid="stColumn"] div.stButton button:hover {
         background-color: #f4f4f4 !important;
         border-color: #b4b4b4 !important;
         color: #0d0d0d !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stColumn"] div.stButton button p {
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 0.78rem !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
     }
     
     /* Pinned and Active Session visual indicators */
@@ -474,6 +565,125 @@ st.markdown("""
     }
     .stExpander > div {
         border: none !important;
+    }
+
+    /* Codex-style thinking timeline */
+    details.codex-trace {
+        background: transparent !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 10px !important;
+        padding: 0 !important;
+        margin: 0.75rem 0 1.1rem 0 !important;
+        overflow: hidden;
+    }
+    details.codex-trace.is-running {
+        border-color: #d1d5db !important;
+        box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+    }
+    details.codex-trace summary {
+        list-style: none !important;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.8rem;
+        min-height: 42px;
+        padding: 0 14px !important;
+        color: #111827 !important;
+        cursor: pointer;
+        font-size: 0.88rem !important;
+        font-weight: 500 !important;
+    }
+    details.codex-trace summary::-webkit-details-marker {
+        display: none;
+    }
+    details.codex-trace summary::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-right: 1.5px solid #6b7280;
+        border-bottom: 1.5px solid #6b7280;
+        transform: rotate(-45deg);
+        transition: transform 0.16s ease;
+        flex: 0 0 auto;
+    }
+    details.codex-trace[open] summary::before {
+        transform: rotate(45deg);
+    }
+    .codex-trace-title {
+        flex: 1;
+        color: #111827;
+    }
+    .codex-trace-subtitle {
+        color: #6b7280;
+        font-size: 0.78rem;
+        font-weight: 400;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 45%;
+    }
+    .codex-trace-panel {
+        border-top: 1px solid #eef2f7;
+        padding: 8px 14px 12px 14px;
+        background: #ffffff;
+    }
+    .codex-trace-row {
+        position: relative;
+        display: grid;
+        grid-template-columns: 14px 1fr;
+        gap: 10px;
+        padding: 8px 0;
+    }
+    .codex-trace-row:not(:last-child)::after {
+        content: "";
+        position: absolute;
+        left: 5px;
+        top: 22px;
+        bottom: -8px;
+        width: 1px;
+        background: #e5e7eb;
+    }
+    .codex-trace-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        margin-top: 5px;
+        background: #111827;
+        box-shadow: 0 0 0 3px #f3f4f6;
+        z-index: 1;
+    }
+    details.codex-trace.is-running .codex-trace-row:last-child .codex-trace-dot {
+        animation: codexPulse 1.25s ease-in-out infinite;
+    }
+    @keyframes codexPulse {
+        0%, 100% { box-shadow: 0 0 0 3px #f3f4f6; }
+        50% { box-shadow: 0 0 0 6px #e5e7eb; }
+    }
+    .codex-trace-line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+    }
+    .codex-trace-line span {
+        color: #111827;
+        font-size: 0.86rem;
+        font-weight: 560;
+    }
+    .codex-trace-line code {
+        background: #f3f4f6 !important;
+        color: #4b5563 !important;
+        border-radius: 999px;
+        padding: 2px 7px;
+        font-size: 0.72rem;
+        font-family: 'Inter', sans-serif;
+        white-space: nowrap;
+    }
+    .codex-trace-content p {
+        margin: 4px 0 0 0 !important;
+        color: #6b7280;
+        font-size: 0.8rem;
+        line-height: 1.55;
     }
     
     /* Sleek status bar for thinking */
@@ -614,16 +824,16 @@ with st.sidebar:
             st.markdown("<div class='sidebar-action-bar'>", unsafe_allow_html=True)
             cols_act = st.columns([0.33, 0.33, 0.34])
             
-            pin_lbl = "📍 取消" if s.get("is_pinned") else "📌 置顶"
-            if cols_act[0].button(pin_lbl, key=f"pin_act_{s_id}", help="置顶/取消置顶"):
+            pin_lbl = "取消置顶" if s.get("is_pinned") else "置顶"
+            if cols_act[0].button(pin_lbl, key=f"pin_act_{s_id}", help="置顶/取消置顶", use_container_width=True):
                 s["is_pinned"] = not s.get("is_pinned", False)
                 st.rerun()
                 
-            if cols_act[1].button("✏️ 改名", key=f"rename_act_{s_id}", help="重命名会话"):
+            if cols_act[1].button("改名", key=f"rename_act_{s_id}", help="重命名会话", use_container_width=True):
                 st.session_state[f"renaming_{s_id}"] = True
                 st.rerun()
                 
-            if cols_act[2].button("🗑️ 删除", key=f"delete_act_{s_id}", help="删除当前会话"):
+            if cols_act[2].button("删除", key=f"delete_act_{s_id}", help="删除当前会话", use_container_width=True):
                 st.session_state[f"confirm_delete_{s_id}"] = True
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
@@ -755,90 +965,7 @@ for msg_idx, msg in enumerate(active_sess["messages"]):
             question = msg.get("question", "")
             
             if thought_process:
-                # Use a small collapsed st.expander for historical CoT Trace
-                with st.expander("🧠 查看已完成的思考与决策明细", expanded=False):
-                    st.markdown("### 📋 完整 SOP 决策执行明细 (CoT Trace)")
-                    for step in thought_process:
-                        step_num = step.get("step", 0)
-                        step_type = step.get("step_type", "")
-                        
-                        if step_type == "select_skill":
-                            st.markdown(f"**意图识别与技能路由**: `{selected_skill or '直接回答/闲聊'}`")
-                            st.markdown(f"*选择依据原因*: {step.get('reason', '')}")
-                        elif step_type == "execute_mcp":
-                            mcp_name = step.get("decision", "").split("调用原子工具 [")[-1].replace("]", "").split()[0]
-                            s_name = step.get("decision", "").split("[")[1].split("]")[0] if "[" in step.get("decision", "") else f"step_{step_num-1}"
-                            
-                            st.markdown(f"**⚙️ {s_name} ({mcp_name})**")
-                            st.caption(f"💡 {step.get('reason', '')}")
-                            
-                            # Render formatted SQL statements directly to normal users if it's N2SQL
-                            if mcp_name == "n2sql" and "sql" in step.get("mcp_output", ""):
-                                try:
-                                    sql_val = json.loads(step.get("mcp_output", "")).get("sql", "")
-                                    if sql_val:
-                                        st.code(sql_val, language="sql")
-                                except Exception:
-                                    pass
-                            
-                            # Pack raw JSON technical parameters behind collapsible expander (Hidden for business users)
-                            with st.expander("🔍 开发者调试报文 (原始输入/输出详情)", expanded=False):
-                                mcp_in_str = json.dumps(step.get("mcp_input", {}), indent=2, ensure_ascii=False)
-                                mcp_out_raw = step.get("mcp_output", "")
-                                try:
-                                    mcp_out_parsed = json.loads(mcp_out_raw)
-                                    mcp_out_str = json.dumps(mcp_out_parsed, indent=2, ensure_ascii=False)
-                                except Exception:
-                                    mcp_out_str = mcp_out_raw
-
-                                st.markdown("**🔹 输入参数 (Arguments):**")
-                                st.code(mcp_in_str, language="json")
-                                st.markdown("**🔸 原始返回 (Raw Return):**")
-                                st.code(mcp_out_str, language="json")
-                        elif step_type == "workflow_error":
-                            st.error(f"**工作流失败**: {step.get('error', '')}")
-                        elif step_type == "sql_correction":
-                            st.markdown("**🧩 SQL 自动纠错**")
-                            st.caption(f"💡 {step.get('reason', '')}")
-                            if step.get("llm_output"):
-                                st.code(step.get("llm_output"), language="sql")
-                            with st.expander("🔍 开发者调试报文 (原始输入/输出详情)", expanded=False):
-                                st.code(json.dumps(step.get("mcp_input", {}), indent=2, ensure_ascii=False), language="json")
-                                st.code(step.get("mcp_output", ""), language="json")
-                    
-                    # Append Mermaid
-                    mermaid_code = ["graph TD"]
-                    mermaid_code.append("    classDef start fill:#4285f4,stroke:#fff,stroke-width:2px,color:#fff;")
-                    mermaid_code.append("    classDef process fill:#34a853,stroke:#fff,stroke-width:1px,color:#fff;")
-                    mermaid_code.append("    classDef active fill:#fbbc05,stroke:#fff,stroke-width:2px,color:#fff;")
-                    mermaid_code.append("    classDef endNode fill:#ea4335,stroke:#fff,stroke-width:2px,color:#fff;")
-                    
-                    mermaid_code.append(f'    Start(["💬 {question[:15]}..."]) --> Router{{"🧠 意图路由层"}}')
-                    if selected_skill:
-                        mermaid_code.append(f'    Router -->|选择技能: {selected_skill}| Skill["📦 {selected_skill} SOP 管道"]')
-                        execute_steps = [s for s in thought_process if s.get("step_type") == "execute_mcp"]
-                        prev_node = "Skill"
-                        for s in execute_steps:
-                            s_num = s.get("step", 0)
-                            node_id = f"Step_{s_num}"
-                            mcp_name_node = s.get("decision", "").split("调用原子工具 [")[-1].replace("]", "").split()[0]
-                            s_name = s.get("decision", "").split("[")[1].split("]")[0] if "[" in s.get("decision", "") else f"step_{s_num-1}"
-                            mermaid_code.append(f'    {prev_node} --> {node_id}["⚙️ {s_num-1}: {s_name} ({mcp_name_node})"]')
-                            mermaid_code.append(f'    class {node_id} process;')
-                            prev_node = node_id
-                        mermaid_code.append(f'    {prev_node} --> Answer["✅ 最终回答"]')
-                        mermaid_code.append('    class Answer endNode;')
-                    else:
-                        mermaid_code.append('    Router -->|未匹配技能| Answer["💬 直接回答"]')
-                        mermaid_code.append('    class Answer endNode;')
-                    
-                    mermaid_code.append('    class Start start; class Router active;')
-                    if selected_skill:
-                        mermaid_code.append('    class Skill active;')
-                    
-                    mermaid_str = "\n".join(mermaid_code)
-                    with st.expander("📊 查看决策树与调用流程图 (Mermaid)", expanded=False):
-                        st.markdown(f"```mermaid\n{mermaid_str}\n```")
+                render_codex_thought_timeline(thought_process, selected_skill, question)
             
             # Render assistant reply with perfect order: Table -> ECharts -> Analysis -> Scope
             render_split_assistant_content(msg["content"])
@@ -865,158 +992,68 @@ if user_query:
         
     # 3. Create Assistant Message Container and execute Agent
     with st.chat_message("assistant"):
-        with st.status("🧠 智能代理深度思考中...", expanded=True) as status_box:
-            
-            # Streaming Callback to show live progress
-            def step_callback(step):
-                step_type = step.get("step_type")
-                decision = step.get("decision", "")
-                
-                if step_type == "select_skill":
-                    status_box.write(f"🔍 **[意图分析]** 路由决策成功 -> {decision}")
-                elif step_type == "execute_mcp":
-                    status_box.write(f"⚙️ **[管道执行]** {decision}")
-                    # Print generated SQL live if present
-                    if step.get("llm_output"):
-                        status_box.write(step.get("llm_output"))
-                elif step_type == "workflow_error":
-                    status_box.write(f"❌ **[工作流中断]** {decision}")
-                elif step_type == "sql_correction":
-                    status_box.write(f"🧩 **[SQL纠错]** {decision}")
-                    if step.get("llm_output"):
-                        status_box.write(f"```sql\n{step.get('llm_output')}\n```")
-                elif step_type == "final_answer":
-                    status_box.write(f"✅ **[分析完毕]** 口径对齐与结果解读就绪")
+        live_steps = []
+        trace_placeholder = st.empty()
+        trace_placeholder.markdown(
+            build_codex_thought_timeline_html(live_steps, question=user_query, open_by_default=True, is_running=True),
+            unsafe_allow_html=True,
+        )
 
-            # Execute agent synchronously with callback
-            result = run_agent(user_query, callback=step_callback)
-            
-            if "error" in result:
-                status_box.update(label="❌ 决策分析执行失败", state="error", expanded=True)
-                st.error(result["error"])
-                
-                # Save assistant response to session state
-                active_sess["messages"].append({
-                    "role": "assistant",
-                    "content": f"决策分析执行失败: {result['error']}",
-                    "thought_process": [],
-                    "selected_skill": None,
-                    "question": user_query
-                })
-            else:
-                # Compile thought details in status box
-                with status_box:
-                    st.markdown("---")
-                    st.markdown("### 📋 完整 SOP 决策执行明细 (CoT Trace)")
-                    thought_process = result.get("thought_process", [])
-                    selected_skill = result.get("selected_skill")
-                    
-                    for step in thought_process:
-                        step_num = step.get("step", 0)
-                        step_type = step.get("step_type", "")
-                        
-                        if step_type == "select_skill":
-                            st.markdown(f"**意图识别与技能路由**: `{selected_skill or '直接回答/闲聊'}`")
-                            st.markdown(f"*选择依据原因*: {step.get('reason', '')}")
-                        elif step_type == "execute_mcp":
-                            mcp_name = step.get("decision", "").split("调用原子工具 [")[-1].replace("]", "").split()[0]
-                            s_name = step.get("decision", "").split("[")[1].split("]")[0] if "[" in step.get("decision", "") else f"step_{step_num-1}"
-                            
-                            st.markdown(f"**⚙️ {s_name} ({mcp_name})**")
-                            st.caption(f"💡 {step.get('reason', '')}")
-                            
-                            # Render formatted SQL statements directly to normal users if it's N2SQL
-                            if mcp_name == "n2sql" and "sql" in step.get("mcp_output", ""):
-                                try:
-                                    sql_val = json.loads(step.get("mcp_output", "")).get("sql", "")
-                                    if sql_val:
-                                        st.code(sql_val, language="sql")
-                                except Exception:
-                                    pass
-                            
-                            # Pack raw JSON technical parameters behind collapsible expander (Hidden for business users)
-                            with st.expander("🔍 开发者调试报文 (原始输入/输出详情)", expanded=False):
-                                mcp_in_str = json.dumps(step.get("mcp_input", {}), indent=2, ensure_ascii=False)
-                                mcp_out_raw = step.get("mcp_output", "")
-                                try:
-                                    mcp_out_parsed = json.loads(mcp_out_raw)
-                                    mcp_out_str = json.dumps(mcp_out_parsed, indent=2, ensure_ascii=False)
-                                except Exception:
-                                    mcp_out_str = mcp_out_raw
+        def step_callback(step):
+            live_steps.append(step)
+            trace_placeholder.markdown(
+                build_codex_thought_timeline_html(live_steps, question=user_query, open_by_default=True, is_running=True),
+                unsafe_allow_html=True,
+            )
 
-                                st.markdown("**🔹 输入参数 (Arguments):**")
-                                st.code(mcp_in_str, language="json")
-                                st.markdown("**🔸 原始返回 (Raw Return):**")
-                                st.code(mcp_out_str, language="json")
-                        elif step_type == "workflow_error":
-                            st.error(f"**工作流失败**: {step.get('error', '')}")
-                        elif step_type == "sql_correction":
-                            st.markdown("**🧩 SQL 自动纠错**")
-                            st.caption(f"💡 {step.get('reason', '')}")
-                            if step.get("llm_output"):
-                                st.code(step.get("llm_output"), language="sql")
-                    
-                    # Append Mermaid
-                    mermaid_code = ["graph TD"]
-                    mermaid_code.append("    classDef start fill:#4285f4,stroke:#fff,stroke-width:2px,color:#fff;")
-                    mermaid_code.append("    classDef process fill:#34a853,stroke:#fff,stroke-width:1px,color:#fff;")
-                    mermaid_code.append("    classDef active fill:#fbbc05,stroke:#fff,stroke-width:2px,color:#fff;")
-                    mermaid_code.append("    classDef endNode fill:#ea4335,stroke:#fff,stroke-width:2px,color:#fff;")
-                    
-                    mermaid_code.append(f'    Start(["💬 {user_query[:15]}..."]) --> Router{{"🧠 意图路由层"}}')
-                    if selected_skill:
-                        mermaid_code.append(f'    Router -->|选择技能: {selected_skill}| Skill["📦 {selected_skill} SOP 管道"]')
-                        execute_steps = [s for s in thought_process if s.get("step_type") == "execute_mcp"]
-                        prev_node = "Skill"
-                        for s in execute_steps:
-                            s_num = s.get("step", 0)
-                            node_id = f"Step_{s_num}"
-                            mcp_name_node = s.get("decision", "").split("调用原子工具 [")[-1].replace("]", "").split()[0]
-                            s_name = s.get("decision", "").split("[")[1].split("]")[0] if "[" in s.get("decision", "") else f"step_{s_num-1}"
-                            mermaid_code.append(f'    {prev_node} --> {node_id}["⚙️ {s_num-1}: {s_name} ({mcp_name_node})"]')
-                            mermaid_code.append(f'    class {node_id} process;')
-                            prev_node = node_id
-                        mermaid_code.append(f'    {prev_node} --> Answer["✅ 最终回答"]')
-                        mermaid_code.append('    class Answer endNode;')
-                    else:
-                        mermaid_code.append('    Router -->|未匹配技能| Answer["💬 直接回答"]')
-                        mermaid_code.append('    class Answer endNode;')
-                    
-                    mermaid_code.append('    class Start start; class Router active;')
-                    if selected_skill:
-                        mermaid_code.append('    class Skill active;')
-                    
-                    mermaid_str = "\n".join(mermaid_code)
-                    with st.expander("📊 查看决策树与调用流程图 (Mermaid)", expanded=False):
-                        st.markdown(f"```mermaid\n{mermaid_str}\n```")
+        result = run_agent(user_query, callback=step_callback)
 
-                # Collapse status_box automatically so the page is pristine
-                status_box.update(label="🧠 深度思考过程已完成 (可点击展开查看决策详情)", state="complete", expanded=False)
+        if "error" in result:
+            error_step = {
+                "step_type": "workflow_error",
+                "error": result["error"],
+                "decision": "执行失败",
+            }
+            live_steps.append(error_step)
+            trace_placeholder.markdown(
+                build_codex_thought_timeline_html(live_steps, question=user_query, open_by_default=True, is_running=False),
+                unsafe_allow_html=True,
+            )
+            st.error(result["error"])
 
-                # Extract final answer text
-                final_answer_text = ""
-                for step in thought_process:
-                    if "final_answer" in step:
-                        final_answer_text = step["final_answer"]
-                        break
-                
-                if not final_answer_text:
-                    final_answer_text = "未生成完整的最终解答。"
+            active_sess["messages"].append({
+                "role": "assistant",
+                "content": f"决策分析执行失败: {result['error']}",
+                "thought_process": live_steps,
+                "selected_skill": None,
+                "question": user_query
+            })
+        else:
+            thought_process = result.get("thought_process", live_steps)
+            selected_skill = result.get("selected_skill")
+            trace_placeholder.markdown(
+                build_codex_thought_timeline_html(thought_process, selected_skill, user_query, open_by_default=True, is_running=False),
+                unsafe_allow_html=True,
+            )
 
-                # Render assistant reply with perfect order: Table -> ECharts -> Analysis -> Scope
-                render_split_assistant_content(final_answer_text)
-                
-                # Save assistant response to session state
-                active_sess["messages"].append({
-                    "role": "assistant",
-                    "content": final_answer_text,
-                    "thought_process": thought_process,
-                    "selected_skill": selected_skill,
-                    "question": user_query
-                })
+            final_answer_text = ""
+            for step in thought_process:
+                if "final_answer" in step:
+                    final_answer_text = step["final_answer"]
+                    break
 
-                st.balloons()
-                st.rerun()
+            if not final_answer_text:
+                final_answer_text = "未生成完整的最终解答。"
+
+            render_split_assistant_content(final_answer_text)
+
+            active_sess["messages"].append({
+                "role": "assistant",
+                "content": final_answer_text,
+                "thought_process": thought_process,
+                "selected_skill": selected_skill,
+                "question": user_query
+            })
 
 
 # ==================== Footer ====================
