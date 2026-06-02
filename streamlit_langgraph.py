@@ -4,7 +4,7 @@ ChatBI Clean Agent - Minimalist SOP & MCP Double-layer Execution Engine UI
 Features:
 - Premium minimalist light design 100% matching ChatGPT Light Mode.
 - Dynamic conversation history with multi-session management (Pin, Rename, Confirm Delete).
-- Real-time deep reasoning progress updates via Streamlit's native st.status connected to langgraph_cot callback.
+- Real-time deep reasoning progress updates via a custom callback-driven timeline.
 - Auto-collapses the deep reasoning box upon completion, leaving only the pristine final answer on screen.
 - Streamlined sidebar: hides advanced schemas, white-lists, and registers inside a single "Advanced Developer Tools" box.
 """
@@ -15,12 +15,14 @@ import streamlit as st
 import html
 import json
 import os
+import time
 import uuid
 
 from langgraph_cot import run_agent
 from skills import list_skills
 from mcps import list_mcps
 from app_config import get_config
+from streamlit_ui_helpers import build_empty_state_html, build_workspace_context_html, iter_typewriter_chunks
 import theme_loader
 
 
@@ -182,7 +184,7 @@ def render_echarts_markdown(md_table: str):
         </html>
         """
         
-        st.markdown("<p style='font-size:0.95rem; font-weight:600; color:#0d0d0d; margin-top:1.2rem; margin-bottom:0.2rem;'>📈 动态数据智能分析图表 (ECharts)</p>", unsafe_allow_html=True)
+        st.markdown("<div class='chatbi-section-label'>动态数据智能分析图表 (ECharts)</div>", unsafe_allow_html=True)
         components.html(html_content, height=340)
         
     except Exception:
@@ -237,9 +239,9 @@ def render_split_assistant_content(final_answer_text: str):
     # Step 1: Render Data Table
     if table_section:
         if is_yoy:
-            st.markdown("### 📊 同环比计算数据")
+            st.markdown("<div class='chatbi-section-label'>同环比计算数据</div>", unsafe_allow_html=True)
         else:
-            st.markdown("### 📊 数据查询结果")
+            st.markdown("<div class='chatbi-section-label'>数据查询结果</div>", unsafe_allow_html=True)
         st.markdown(table_section)
         
         # Step 2: Render ECharts Visualization directly beneath the data table
@@ -256,15 +258,15 @@ def render_split_assistant_content(final_answer_text: str):
     # Step 3: Render Business Analysis & Interpretation
     if analysis_section:
         if is_yoy:
-            st.markdown("### 💡 同环比深度解读")
+            st.markdown("<div class='chatbi-section-label chatbi-section-label-analysis'>同环比深度解读</div>", unsafe_allow_html=True)
         else:
-            st.markdown("### 💡 业务分析与解读")
+            st.markdown("<div class='chatbi-section-label chatbi-section-label-analysis'>业务分析与解读</div>", unsafe_allow_html=True)
         st.markdown(analysis_section)
         
     # Step 4: Render Data Scope / Explanation
     if scope_section:
-        st.markdown("### 🛡️ 数据统计口径说明")
-        st.markdown(f"> {scope_section.lstrip('>').strip()}")
+        st.markdown("<div class='chatbi-section-label chatbi-section-label-scope'>数据统计口径说明</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='chatbi-scope-note'>{html.escape(scope_section.lstrip('>').strip())}</div>", unsafe_allow_html=True)
 
 
 def build_codex_thought_timeline_html(thought_process, selected_skill=None, question="", open_by_default=False, is_running=False):
@@ -346,6 +348,17 @@ def render_codex_thought_timeline(thought_process, selected_skill=None, question
     )
 
 
+def stream_typewriter_answer(final_answer_text: str, delay: float = 0.03):
+    """Render the final answer with a lightweight typewriter effect."""
+    answer_placeholder = st.empty()
+    rendered = ""
+    for chunk in iter_typewriter_chunks(final_answer_text, chunk_size=2):
+        rendered += chunk
+        answer_placeholder.markdown(f"{rendered}▌")
+        time.sleep(delay)
+    answer_placeholder.markdown(rendered)
+
+
 # ==================== Page Configuration ====================
 st.set_page_config(
     page_title="ChatBI 智能数据助理",
@@ -381,6 +394,7 @@ if active_id not in st.session_state.sessions:
     st.session_state.active_session_id = active_id
 
 active_sess = st.session_state.sessions[active_id]
+pending_query = st.session_state.pop("pending_query", None)
 
 
 # ==================== Page Premium Light CSS (ChatGPT Light Mode) ====================
@@ -394,23 +408,29 @@ st.markdown("""
         color: #0d0d0d !important;
         font-family: 'Inter', 'Outfit', sans-serif !important;
     }
+
+    .main .block-container {
+        max-width: 980px;
+        padding-top: 2rem;
+        padding-bottom: 7rem;
+    }
     
     /* Typography override */
     h1, h2, h3, h4, h5, h6 {
         color: #0d0d0d !important;
         font-family: 'Outfit', sans-serif !important;
         font-weight: 600 !important;
-        letter-spacing: -0.015em;
+        letter-spacing: 0;
     }
     
     /* Elegant Title */
     .main-title {
-        font-size: 2.5rem !important;
+        font-size: 2rem !important;
         font-weight: 600 !important;
         color: #0d0d0d !important;
         text-align: center;
         margin-bottom: 0.1rem;
-        letter-spacing: -0.02em;
+        letter-spacing: 0;
     }
     
     .subtitle {
@@ -437,11 +457,11 @@ st.markdown("""
     .stButton > button {
         background-color: #ffffff !important;
         border: 1px solid #e3e3e3 !important;
-        border-radius: 16px !important;
+        border-radius: 8px !important;
         color: #0d0d0d !important;
-        padding: 1.2rem 1.1rem !important;
+        padding: 0.9rem 1rem !important;
         height: auto !important;
-        min-height: 86px !important;
+        min-height: 74px !important;
         text-align: left !important;
         font-size: 0.88rem !important;
         font-weight: 500 !important;
@@ -528,6 +548,14 @@ st.markdown("""
         background-color: #ffffff !important;
         border-radius: 8px !important;
         border: 1px solid #e3e3e3 !important;
+    }
+
+    .sidebar-section-kicker {
+        font-size: 0.74rem;
+        font-weight: 650;
+        color: #6b7280;
+        margin: 1rem 0 0.35rem 0;
+        text-transform: uppercase;
     }
     
     /* Expanders & details tags (Sleek charcoal style) */
@@ -698,11 +726,11 @@ st.markdown("""
     
     /* Make the chat input container perfectly match the ChatGPT look */
     div[data-testid="stChatInput"] {
-        border-radius: 24px !important;
+        border-radius: 12px !important;
         background-color: #ffffff !important;
         border: 1px solid #e3e3e3 !important;
-        padding: 4px 10px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+        padding: 5px 10px !important;
+        box-shadow: 0 8px 24px rgba(17, 24, 39, 0.08) !important;
     }
     div[data-testid="stChatInput"] textarea {
         background-color: transparent !important;
@@ -713,13 +741,13 @@ st.markdown("""
     /* Override chat message bubble padding & backgrounds */
     div[data-testid="stChatMessage"] {
         background-color: transparent !important;
-        padding: 1.2rem 0.5rem !important;
-        border-bottom: 1px solid #f0f0f0 !important;
+        padding: 1.1rem 0 !important;
+        border-bottom: 1px solid #f3f4f6 !important;
     }
     /* Style user bubble like ChatGPT */
     div[data-testid="stChatMessage"]:nth-child(odd) div[data-testid="stChatMessageContent"] {
         background-color: #f4f4f4 !important;
-        border-radius: 20px !important;
+        border-radius: 8px !important;
         padding: 10px 16px !important;
         color: #0d0d0d !important;
         display: inline-block !important;
@@ -730,18 +758,101 @@ st.markdown("""
         padding: 10px 0 !important;
         color: #0d0d0d !important;
     }
+
+    .chatbi-empty-state {
+        margin: 4.8rem auto 1.4rem auto;
+        text-align: center;
+        max-width: 780px;
+    }
+    .chatbi-empty-state h1 {
+        margin: 0 0 0.5rem 0;
+        font-size: 2rem;
+        font-weight: 650;
+        letter-spacing: 0;
+    }
+    .chatbi-empty-state p {
+        margin: 0 auto;
+        max-width: 620px;
+        color: #4b5563;
+        font-size: 1rem;
+        line-height: 1.7;
+    }
+    .chatbi-suggestion-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.8rem;
+        margin-top: 1.4rem;
+    }
+    .chatbi-context-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.45rem 0.7rem;
+        padding: 0.7rem 0 0.85rem 0;
+        margin-bottom: 0.7rem;
+        border-bottom: 1px solid #e5e7eb;
+        color: #6b7280;
+        font-size: 0.82rem;
+    }
+    .chatbi-context-bar strong {
+        color: #111827;
+        font-weight: 600;
+    }
+    .chatbi-section-label {
+        margin: 1.1rem 0 0.5rem 0;
+        padding: 0.55rem 0.75rem;
+        border-left: 3px solid #2563eb;
+        border-radius: 8px;
+        background: #f8fafc;
+        color: #111827;
+        font-size: 0.94rem;
+        font-weight: 650;
+    }
+    .chatbi-section-label-analysis {
+        border-left-color: #16a34a;
+    }
+    .chatbi-section-label-scope {
+        border-left-color: #64748b;
+    }
+    .chatbi-scope-note {
+        margin: 0.35rem 0 1rem 0;
+        padding: 0.75rem 0.9rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #f9fafb;
+        color: #4b5563;
+        font-size: 0.9rem;
+        line-height: 1.65;
+    }
+
+    @media (max-width: 760px) {
+        .main .block-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+            padding-bottom: 8rem;
+        }
+        .chatbi-empty-state {
+            margin-top: 2.4rem;
+        }
+        .chatbi-suggestion-grid {
+            grid-template-columns: 1fr;
+        }
+        .codex-trace-subtitle {
+            max-width: 32%;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ==================== Sidebar: ChatGPT Multi-Session Panel ====================
 with st.sidebar:
-    st.markdown('<h2 style="font-size:1.4rem; margin-bottom:0.2rem; color:#0d0d0d; display:flex; align-items:center;">✨ ChatBI 场景管理</h2>', unsafe_allow_html=True)
-    st.caption("💡 侧边栏支持使用左上角 ◀ 按钮进行折叠/展开")
+    st.markdown('<h2 style="font-size:1.25rem; margin-bottom:0.2rem; color:#0d0d0d;">ChatBI 工作台</h2>', unsafe_allow_html=True)
+    st.caption("可在左上角折叠侧边栏")
     st.markdown("---")
 
     # [+] New Chat Button
-    if st.button("➕ 新建聊天", use_container_width=True, key="new_chat_btn"):
+    if st.button("新建聊天", use_container_width=True, key="new_chat_btn"):
         new_id = str(uuid.uuid4())
         st.session_state.sessions[new_id] = {
             "id": new_id,
@@ -752,7 +863,7 @@ with st.sidebar:
         st.session_state.active_session_id = new_id
         st.rerun()
 
-    st.markdown("<p style='font-size:0.8rem; font-weight:600; color:#9ca3af; margin: 1rem 0 0.3rem 0;'>会话历史</p>", unsafe_allow_html=True)
+    st.markdown("<div class='sidebar-section-kicker'>会话历史</div>", unsafe_allow_html=True)
     
     # Sort sessions: Pinned first, then Pinned = False
     all_sessions = list(st.session_state.sessions.items())
@@ -766,31 +877,31 @@ with st.sidebar:
         is_active = (s_id == active_id)
         
         # Determine visual title
-        pin_prefix = "📌 " if s.get("is_pinned") else "💬 "
+        pin_prefix = "[置顶] " if s.get("is_pinned") else ""
         btn_label = f"{pin_prefix}{s['title']}"
         if is_active:
-            btn_label = f"👉 {btn_label}"
+            btn_label = f"当前 - {btn_label}"
             
         # Form block for renaming
         if st.session_state.get(f"renaming_{s_id}"):
             with st.form(key=f"rename_form_{s_id}"):
                 new_title = st.text_input("重命名会话", value=s['title'], key=f"new_title_val_{s_id}", label_visibility="collapsed")
                 cols_form = st.columns(2)
-                if cols_form[0].form_submit_button("💾 保存"):
+                if cols_form[0].form_submit_button("保存"):
                     if new_title.strip():
                         s['title'] = new_title.strip()
                     st.session_state.pop(f"renaming_{s_id}", None)
                     st.rerun()
-                if cols_form[1].form_submit_button("❌ 取消"):
+                if cols_form[1].form_submit_button("取消"):
                     st.session_state.pop(f"renaming_{s_id}", None)
                     st.rerun()
             continue
             
         # Dialog block for delete confirmation
         if st.session_state.get(f"confirm_delete_{s_id}"):
-            st.markdown(f"<p style='font-size:0.8rem; color:#dc2626; font-weight:bold; margin-bottom:4px; margin-top:8px;'>⚠️ 确定要删除会话吗？</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:0.8rem; color:#dc2626; font-weight:bold; margin-bottom:4px; margin-top:8px;'>确定要删除会话吗？</p>", unsafe_allow_html=True)
             cols_del = st.columns(2)
-            if cols_del[0].button("✅ 确定", key=f"do_delete_{s_id}", help="确认删除"):
+            if cols_del[0].button("确定", key=f"do_delete_{s_id}", help="确认删除"):
                 st.session_state.sessions.pop(s_id, None)
                 st.session_state.pop(f"confirm_delete_{s_id}", None)
                 
@@ -809,7 +920,7 @@ with st.sidebar:
                         }
                         st.session_state.active_session_id = new_id
                 st.rerun()
-            if cols_del[1].button("❌ 取消", key=f"cancel_delete_{s_id}", help="取消"):
+            if cols_del[1].button("取消", key=f"cancel_delete_{s_id}", help="取消"):
                 st.session_state.pop(f"confirm_delete_{s_id}", None)
                 st.rerun()
             continue
@@ -841,7 +952,7 @@ with st.sidebar:
     st.markdown("---")
 
     # Scenario Theme Configuration
-    st.subheader("🎯 业务场景主题")
+    st.markdown("<div class='sidebar-section-kicker'>业务场景</div>", unsafe_allow_html=True)
     themes = theme_loader.get_themes()
     active_theme = theme_loader.get_active_theme()
     
@@ -855,11 +966,11 @@ with st.sidebar:
     
     # Apply selected theme
     os.environ["ACTIVE_THEME"] = selected_theme
-    st.caption(f"📁 激活主题: **{selected_theme}**")
+    st.caption(f"激活主题: **{selected_theme}**")
     st.markdown("---")
 
     # API Configuration
-    st.subheader("🔑 凭证配置")
+    st.markdown("<div class='sidebar-section-kicker'>运行配置</div>", unsafe_allow_html=True)
     api_key = st.text_input("API Key", type="password", value=os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY") or "", label_visibility="collapsed", placeholder="输入 API Key 开启 Real 模式")
     if api_key:
         os.environ["DEEPSEEK_API_KEY"] = api_key
@@ -872,7 +983,7 @@ with st.sidebar:
     st.markdown("---")
 
     # Advanced Developer Tools: Pack everything technical together!
-    with st.expander("⚙️ 高级配置 (开发者工具)"):
+    with st.expander("高级配置 (开发者工具)"):
         st.markdown("**📊 允许查询的数据表白名单**")
         allowed_tbls = get_config().database.allowed_tables
         if allowed_tbls:
@@ -890,7 +1001,7 @@ with st.sidebar:
             new_table_name = st.text_input("物理表名", placeholder="例如: v_dm_finance_daily")
             new_table_ddl = st.text_area("建表语句 (CREATE TABLE DDL)", placeholder="CREATE TABLE v_dm_finance_daily (...)")
             
-            submit_btn = st.form_submit_button("💾 录入并保存配置")
+            submit_btn = st.form_submit_button("录入并保存配置")
             if submit_btn:
                 if not new_theme_name.strip() or not new_table_name.strip() or not new_table_ddl.strip():
                     st.error("请完整填写表单！")
@@ -916,27 +1027,24 @@ with st.sidebar:
         # Skills Panel
         st.markdown("**📦 已注册 SOP 技能**")
         for s in list_skills():
-            st.caption(f"🔮 **{s.get('name')}**: {s.get('description')}")
+            st.caption(f"**{s.get('name')}**: {s.get('description')}")
 
         st.markdown("---")
         
         # MCP Tools Panel
         st.markdown("**🔧 已注册 MCP 原子工具**")
         for m in list_mcps():
-            st.caption(f"🛠️ **{m.get('name')}**: {m.get('description')}")
+            st.caption(f"**{m.get('name')}**: {m.get('description')}")
 
 
 # ==================== Main UI Workspace ====================
 
 # If chat is empty, show the premium home page brand
-if len(active_sess["messages"]) == 0:
-    st.markdown('<h1 class="main-title" style="margin-top: 5rem;">你在忙什么？</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="subtitle">基于 SOP & MCP 双层引擎的智能数据助理，产销存指标对话与决策分析平台</p>', unsafe_allow_html=True)
-    
-    st.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
+if len(active_sess["messages"]) == 0 and not pending_query:
+    st.markdown(build_empty_state_html(), unsafe_allow_html=True)
     
     # Minimalist Suggestion Cards (Completely pure text cards, no emoji icons!)
-    st.markdown("<p style='font-size:0.95rem; font-weight: 500; color:#4b5563; margin-bottom: 0.8rem; text-align:center;'>💡 推荐快速测试案例</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:0.9rem; font-weight: 600; color:#4b5563; margin-bottom: 0.8rem; text-align:center;'>推荐快速测试案例</p>", unsafe_allow_html=True)
     cols = st.columns(4)
     examples = [
         ("本月中东公司销量多少？", "本月中东公司销量多少？", 0),
@@ -948,10 +1056,11 @@ if len(active_sess["messages"]) == 0:
     clicked_example = None
     for label, q, col_idx in examples:
         if cols[col_idx].button(label, use_container_width=True, key=f"ex_{col_idx}"):
-            clicked_example = q
+            st.session_state.pending_query = q
+            st.rerun()
 else:
     # If chat is not empty, show a small elegant header at the very top
-    st.markdown(f'<p style="font-size:0.8rem; color:#6b7280; margin-bottom: 1.2rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.5rem;">💬 当前对话场景: <b>{selected_theme}</b> • 当前会话: <b>{active_sess["title"]}</b></p>', unsafe_allow_html=True)
+    st.markdown(build_workspace_context_html(selected_theme, active_sess["title"]), unsafe_allow_html=True)
     clicked_example = None
 
 # Render all past messages in conversational history of current session
@@ -971,10 +1080,10 @@ for msg_idx, msg in enumerate(active_sess["messages"]):
             render_split_assistant_content(msg["content"])
 
 # Detect new user query
-user_query = st.chat_input("💬 有问题，尽管问...")
+user_query = st.chat_input("有问题，尽管问...")
 
-if clicked_example:
-    user_query = clicked_example
+if pending_query:
+    user_query = pending_query
 
 if user_query:
     # Auto-Naming on first question
@@ -1045,6 +1154,11 @@ if user_query:
             if not final_answer_text:
                 final_answer_text = "未生成完整的最终解答。"
 
+            typewriter_placeholder = st.empty()
+            with typewriter_placeholder.container():
+                stream_typewriter_answer(final_answer_text)
+            typewriter_placeholder.empty()
+
             render_split_assistant_content(final_answer_text)
 
             active_sess["messages"].append({
@@ -1058,4 +1172,4 @@ if user_query:
 
 # ==================== Footer ====================
 st.markdown("<div style='margin-top: 5rem;'></div>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center; font-size:0.8rem; color:#9ca3af; border-top: 1px solid #f0f0f0; padding-top: 1rem;'>Powered by SOP & Model Context Protocol Engine • Google DeepMind Advanced Agentic Coding</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; font-size:0.8rem; color:#9ca3af; border-top: 1px solid #f0f0f0; padding-top: 1rem;'>Powered by SOP & Model Context Protocol Engine</p>", unsafe_allow_html=True)
