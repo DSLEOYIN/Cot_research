@@ -22,7 +22,12 @@ from langgraph_cot import run_agent
 from skills import list_skills
 from mcps import list_mcps
 from app_config import get_config
-from streamlit_ui_helpers import build_empty_state_html, build_workspace_context_html, iter_typewriter_chunks
+from streamlit_ui_helpers import (
+    build_empty_state_html,
+    build_workspace_context_html,
+    iter_typewriter_chunks,
+    session_action_specs,
+)
 import theme_loader
 
 
@@ -394,7 +399,6 @@ if active_id not in st.session_state.sessions:
     st.session_state.active_session_id = active_id
 
 active_sess = st.session_state.sessions[active_id]
-pending_query = st.session_state.pop("pending_query", None)
 
 
 # ==================== Page Premium Light CSS (ChatGPT Light Mode) ====================
@@ -533,6 +537,36 @@ st.markdown("""
         line-height: 1 !important;
         white-space: nowrap !important;
     }
+
+    section[data-testid="stSidebar"] div[id^="bui"][id$="__anchor"] > button {
+        background-color: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
+        color: #374151 !important;
+        width: 34px !important;
+        min-width: 34px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+        justify-content: center !important;
+        box-shadow: none !important;
+    }
+    section[data-testid="stSidebar"] div[id^="bui"][id$="__anchor"] > button p {
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 1rem !important;
+        line-height: 1 !important;
+    }
+    section[data-testid="stSidebar"] div[id^="bui"][id$="__anchor"] > button [data-testid="stIconMaterial"],
+    section[data-testid="stSidebar"] div[id^="bui"][id$="__anchor"] > button svg,
+    section[data-testid="stSidebar"] div[id^="bui"][id$="__anchor"] > button > div:not(:first-child) {
+        display: none !important;
+    }
+    section[data-testid="stSidebar"] div[id^="bui"][id$="__anchor"] > button:hover {
+        background-color: #f4f4f4 !important;
+        border-color: #d1d5db !important;
+        color: #111827 !important;
+    }
     
     /* Pinned and Active Session visual indicators */
     .active-session-indicator {
@@ -556,6 +590,14 @@ st.markdown("""
         color: #6b7280;
         margin: 1rem 0 0.35rem 0;
         text-transform: uppercase;
+    }
+    .sidebar-inline-title {
+        display: flex;
+        align-items: center;
+        height: 34px;
+        color: #111827;
+        font-size: 0.9rem;
+        font-weight: 650;
     }
     
     /* Expanders & details tags (Sleek charcoal style) */
@@ -777,12 +819,6 @@ st.markdown("""
         font-size: 1rem;
         line-height: 1.7;
     }
-    .chatbi-suggestion-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 0.8rem;
-        margin-top: 1.4rem;
-    }
     .chatbi-context-bar {
         display: flex;
         align-items: center;
@@ -834,9 +870,6 @@ st.markdown("""
         .chatbi-empty-state {
             margin-top: 2.4rem;
         }
-        .chatbi-suggestion-grid {
-            grid-template-columns: 1fr;
-        }
         .codex-trace-subtitle {
             max-width: 32%;
         }
@@ -851,8 +884,9 @@ with st.sidebar:
     st.caption("可在左上角折叠侧边栏")
     st.markdown("---")
 
-    # [+] New Chat Button
-    if st.button("新建聊天", use_container_width=True, key="new_chat_btn"):
+    session_header_cols = st.columns([0.55, 0.45], vertical_alignment="center")
+    session_header_cols[0].markdown("<div class='sidebar-inline-title'>会话</div>", unsafe_allow_html=True)
+    if session_header_cols[1].button("+ 新建", use_container_width=True, key="new_chat_btn", help="新建聊天"):
         new_id = str(uuid.uuid4())
         st.session_state.sessions[new_id] = {
             "id": new_id,
@@ -925,29 +959,27 @@ with st.sidebar:
                 st.rerun()
             continue
 
-        # 1. Render Session Name Select button (100% width, no side-by-side columns to squeeze)
-        if st.button(btn_label, key=f"select_{s_id}", use_container_width=True):
+        row_cols = st.columns([0.82, 0.18], vertical_alignment="center")
+        if row_cols[0].button(btn_label, key=f"select_{s_id}", use_container_width=True):
             st.session_state.active_session_id = s_id
             st.rerun()
-            
-        # 2. Render small Action Bar ONLY under the ACTIVE session (ChatGPT premium dropdown-like bar)
-        if is_active:
-            st.markdown("<div class='sidebar-action-bar'>", unsafe_allow_html=True)
-            cols_act = st.columns([0.33, 0.33, 0.34])
-            
-            pin_lbl = "取消置顶" if s.get("is_pinned") else "置顶"
-            if cols_act[0].button(pin_lbl, key=f"pin_act_{s_id}", help="置顶/取消置顶", use_container_width=True):
-                s["is_pinned"] = not s.get("is_pinned", False)
-                st.rerun()
-                
-            if cols_act[1].button("改名", key=f"rename_act_{s_id}", help="重命名会话", use_container_width=True):
-                st.session_state[f"renaming_{s_id}"] = True
-                st.rerun()
-                
-            if cols_act[2].button("删除", key=f"delete_act_{s_id}", help="删除当前会话", use_container_width=True):
-                st.session_state[f"confirm_delete_{s_id}"] = True
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+
+        with row_cols[1].popover("⋯", help="更多会话操作", use_container_width=True):
+            action_cols = st.columns(3)
+            for action_col, spec in zip(action_cols, session_action_specs(s.get("is_pinned", False))):
+                if action_col.button(
+                    spec["icon"],
+                    key=f"{spec['action']}_act_{s_id}",
+                    help=spec["help"],
+                    use_container_width=True,
+                ):
+                    if spec["action"] == "pin":
+                        s["is_pinned"] = not s.get("is_pinned", False)
+                    elif spec["action"] == "rename":
+                        st.session_state[f"renaming_{s_id}"] = True
+                    elif spec["action"] == "delete":
+                        st.session_state[f"confirm_delete_{s_id}"] = True
+                    st.rerun()
 
     st.markdown("---")
 
@@ -1040,28 +1072,11 @@ with st.sidebar:
 # ==================== Main UI Workspace ====================
 
 # If chat is empty, show the premium home page brand
-if len(active_sess["messages"]) == 0 and not pending_query:
+if len(active_sess["messages"]) == 0:
     st.markdown(build_empty_state_html(), unsafe_allow_html=True)
-    
-    # Minimalist Suggestion Cards (Completely pure text cards, no emoji icons!)
-    st.markdown("<p style='font-size:0.9rem; font-weight: 600; color:#4b5563; margin-bottom: 0.8rem; text-align:center;'>推荐快速测试案例</p>", unsafe_allow_html=True)
-    cols = st.columns(4)
-    examples = [
-        ("本月中东公司销量多少？", "本月中东公司销量多少？", 0),
-        ("同比去年怎么样？", "本月终端量同比去年怎么样？", 1),
-        ("什么是库存周转率？", "什么是库存周转率？", 2),
-        ("汽车保养公里数？", "汽车保养一般多少公里做一次？", 3)
-    ]
-
-    clicked_example = None
-    for label, q, col_idx in examples:
-        if cols[col_idx].button(label, use_container_width=True, key=f"ex_{col_idx}"):
-            st.session_state.pending_query = q
-            st.rerun()
 else:
     # If chat is not empty, show a small elegant header at the very top
     st.markdown(build_workspace_context_html(selected_theme, active_sess["title"]), unsafe_allow_html=True)
-    clicked_example = None
 
 # Render all past messages in conversational history of current session
 for msg_idx, msg in enumerate(active_sess["messages"]):
@@ -1082,10 +1097,9 @@ for msg_idx, msg in enumerate(active_sess["messages"]):
 # Detect new user query
 user_query = st.chat_input("有问题，尽管问...")
 
-if pending_query:
-    user_query = pending_query
-
 if user_query:
+    session_history_for_agent = list(active_sess["messages"])
+
     # Auto-Naming on first question
     if len(active_sess["messages"]) == 0 and active_sess["title"] == "新聊天":
         clean_q = user_query.strip()
@@ -1115,7 +1129,7 @@ if user_query:
                 unsafe_allow_html=True,
             )
 
-        result = run_agent(user_query, callback=step_callback)
+        result = run_agent(user_query, callback=step_callback, history=session_history_for_agent)
 
         if "error" in result:
             error_step = {

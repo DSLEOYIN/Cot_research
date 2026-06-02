@@ -39,7 +39,6 @@ def build_empty_state_html() -> str:
         "<section class='chatbi-empty-state'>"
         "<h1>你在忙什么？</h1>"
         "<p>基于 SOP & MCP 双层引擎的智能数据助理，产销存指标对话与决策分析平台</p>"
-        "<div class='chatbi-suggestion-grid'></div>"
         "</section>"
     )
 
@@ -50,3 +49,24 @@ def iter_typewriter_chunks(text: str, chunk_size: int = 4) -> Iterator[str]:
         chunk_size = len(text) or 1
     for start in range(0, len(text), chunk_size):
         yield text[start : start + chunk_size]
+
+
+def session_action_specs(is_pinned: bool) -> list[dict[str, str]]:
+    """Return compact session-menu actions with icon labels and tooltip text."""
+    return [
+        {
+            "action": "pin",
+            "icon": "↑",
+            "help": "取消置顶" if is_pinned else "置顶会话",
+        },
+        {
+            "action": "rename",
+            "icon": "✎",
+            "help": "重命名会话",
+        },
+        {
+            "action": "delete",
+            "icon": "×",
+            "help": "删除会话",
+        },
+    ]

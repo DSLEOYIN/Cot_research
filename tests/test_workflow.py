@@ -39,6 +39,56 @@ def test_mock_chat_workflow_routes_to_chat_skill(monkeypatch):
     assert "保养" in result["messages"][-1]["content"]
 
 
+def test_run_agent_injects_recent_session_memory(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    captured = {}
+
+    def fake_execute_mcp(name, **kwargs):
+        captured["name"] = name
+        captured["kwargs"] = kwargs
+        return json.dumps({
+            "success": True,
+            "text": "已结合会话上下文回答。",
+            "structured_output": None,
+            "error": None,
+        }, ensure_ascii=False)
+
+    monkeypatch.setattr("langgraph_cot.execute_mcp", fake_execute_mcp)
+
+    history = [
+        {"role": "user", "content": "2023年6月中东公司的销量是多少？"},
+        {"role": "assistant", "content": "中东公司终端量 2311，批发量 2160。"},
+    ]
+
+    result = run_agent("刚才我问了什么？", history=history)
+
+    assert result["selected_skill"] == "chat"
+    assert captured["name"] == "llm"
+    assert "最近会话上下文" in captured["kwargs"]["prompt"]
+    assert "2023年6月中东公司的销量是多少？" in captured["kwargs"]["prompt"]
+    assert "刚才我问了什么？" in captured["kwargs"]["prompt"]
+    assert captured["kwargs"]["prompt"].count("刚才我问了什么？") == 1
+    assert result["messages"][0]["content"] == history[0]["content"]
+    assert result["messages"][-1]["content"] == "已结合会话上下文回答。"
+
+
+def test_mock_chat_can_answer_from_session_memory(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    history = [
+        {"role": "user", "content": "2023年6月中东公司的销量是多少？"},
+        {"role": "assistant", "content": "中东公司终端量 2311，批发量 2160。"},
+    ]
+
+    result = run_agent("刚才我问了什么？", history=history)
+
+    assert result["selected_skill"] == "chat"
+    assert "2023年6月中东公司的销量是多少" in result["messages"][-1]["content"]
+
+
 def test_workflow_stops_on_mcp_failure(monkeypatch):
     monkeypatch.setenv("APP_MODE", "real")
     monkeypatch.setenv("MOCK_ENABLED", "false")

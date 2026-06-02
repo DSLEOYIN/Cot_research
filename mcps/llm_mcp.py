@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import TypedDict, Literal
 try:
     from typing import NotRequired
@@ -284,6 +285,16 @@ def _mock_llm_response(prompt: str, prompt_type: str | None) -> dict:
         }
 
     if prompt_type == "chat":
+        memory_match = re.search(r"用户：(.+)", prompt)
+        if "最近会话上下文" in prompt and any(k in prompt for k in ["刚才", "上文", "之前", "前面"]):
+            remembered_question = memory_match.group(1).strip() if memory_match else "上一轮问题"
+            return {
+                "success": True,
+                "text": f"你刚才问的是：{remembered_question}",
+                "structured_output": None,
+                "error": None,
+                "mock": True,
+            }
         return {
             "success": True,
             "text": "一般家用车建议每 5000 到 10000 公里或每 6 到 12 个月保养一次，具体以车辆保养手册、机油类型和实际使用环境为准。",

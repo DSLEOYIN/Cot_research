@@ -3,6 +3,7 @@ from streamlit_ui_helpers import (
     build_result_panel_html,
     build_workspace_context_html,
     iter_typewriter_chunks,
+    session_action_specs,
 )
 
 
@@ -27,7 +28,7 @@ def test_empty_state_uses_stable_layout_classes():
     html = build_empty_state_html()
 
     assert "chatbi-empty-state" in html
-    assert "chatbi-suggestion-grid" in html
+    assert "chatbi-suggestion-grid" not in html
 
 
 def test_typewriter_chunks_preserve_text_order():
@@ -41,3 +42,17 @@ def test_typewriter_chunks_reject_invalid_chunk_size():
     chunks = list(iter_typewriter_chunks("abc", chunk_size=0))
 
     assert chunks == ["abc"]
+
+
+def test_session_action_specs_use_icons_and_tooltips():
+    specs = session_action_specs(is_pinned=False)
+
+    assert [spec["action"] for spec in specs] == ["pin", "rename", "delete"]
+    assert [spec["icon"] for spec in specs] == ["↑", "✎", "×"]
+    assert specs[0]["help"] == "置顶会话"
+
+
+def test_session_action_specs_toggle_pin_tooltip():
+    specs = session_action_specs(is_pinned=True)
+
+    assert specs[0]["help"] == "取消置顶"

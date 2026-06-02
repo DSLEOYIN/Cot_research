@@ -99,6 +99,71 @@ def _append_thought(thought_process: list, thought_entry: dict) -> None:
             pass
 
 
+def _current_user_question(messages: Sequence[dict]) -> str:
+    for message in reversed(list(messages)):
+        if message.get("role") == "user":
+            return message.get("content", "")
+    return messages[-1].get("content", "") if messages else ""
+
+
+def _sanitize_history_messages(history: Sequence[dict] | None, max_messages: int = 8) -> list[dict]:
+    if not history:
+        return []
+
+    sanitized = []
+    for message in history:
+        role = message.get("role")
+        content = (message.get("content") or "").strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        sanitized.append({"role": role, "content": content})
+    return sanitized[-max_messages:]
+
+
+def _history_before_current_user(messages: Sequence[dict]) -> list[dict]:
+    message_list = list(messages)
+    current_user_index = None
+    for index in range(len(message_list) - 1, -1, -1):
+        if message_list[index].get("role") == "user":
+            current_user_index = index
+            break
+    if current_user_index is None:
+        return _sanitize_history_messages(message_list)
+    return _sanitize_history_messages(message_list[:current_user_index])
+
+
+def _format_recent_memory(history_messages: Sequence[dict]) -> str:
+    if not history_messages:
+        return ""
+
+    role_labels = {"user": "用户", "assistant": "助手"}
+    lines = ["最近会话上下文："]
+    for message in history_messages:
+        role_label = role_labels.get(message.get("role"), message.get("role", "消息"))
+        content = message.get("content", "")
+        if len(content) > 360:
+            content = content[:360] + "..."
+        lines.append(f"{role_label}：{content}")
+    return "\n".join(lines)
+
+
+def _query_with_memory(current_question: str, history_messages: Sequence[dict]) -> str:
+    memory_text = _format_recent_memory(history_messages)
+    if not memory_text:
+        return current_question
+
+    return (
+        f"当前问题：{current_question}\n\n"
+        f"{memory_text}\n\n"
+        "请优先回答当前问题；当当前问题依赖上文时，结合最近会话上下文理解指代、时间、组织和指标。"
+    )
+
+
+def _build_agent_messages(question: str, history: Sequence[dict] | None = None) -> list[dict]:
+    history_messages = _sanitize_history_messages(history)
+    return history_messages + [{"role": "user", "content": question}]
+
+
 def _build_mcp_thought(step_num: int, step_name: str, step_item: dict, mcp_name: str, resolved_args: dict, result_str: str, result_data: Any) -> dict:
     thought = {
         "step": step_num + 1,
@@ -211,7 +276,7 @@ def step1_select_skill(state: AgentState) -> AgentState:
     """
     global _ACTIVE_CALLBACK
     messages = list(state["messages"])
-    user_question = messages[-1].get("content", "") if messages else ""
+    user_question = _current_user_question(messages)
 
     # Load dynamic registered skills
     skills_list = list_skills()
@@ -310,7 +375,9 @@ def step2_run_workflow(state: AgentState) -> AgentState:
     global _ACTIVE_CALLBACK
     skill_name = state.get("selected_skill")
     messages = list(state["messages"])
-    user_question = messages[0].get("content", "") if messages else ""
+    user_question = _current_user_question(messages)
+    history_messages = _history_before_current_user(messages)
+    workflow_query = _query_with_memory(user_question, history_messages)
 
     skill_config = get_skill(skill_name)
     if not skill_config:
@@ -326,7 +393,11 @@ def step2_run_workflow(state: AgentState) -> AgentState:
 
     # Global context for resolving variables
     context = {
-        "input": {"query": user_question},
+        "input": {
+            "query": workflow_query,
+            "current_query": user_question,
+            "conversation_context": _format_recent_memory(history_messages),
+        },
         "steps": {}
     }
 
@@ -502,7 +573,7 @@ def mock_select_skill(state: AgentState) -> AgentState:
     """Mock Router fallback in case API key is missing"""
     global _ACTIVE_CALLBACK
     messages = list(state["messages"])
-    user_question = messages[-1].get("content", "") if messages else ""
+    user_question = _current_user_question(messages)
 
     selected_skill = "chat"
     reason = "未检测到 API Key，触发本地意图分析规则系统。"
@@ -589,7 +660,7 @@ except ImportError as e:
 
 # ==================== Executable Run Agent Function ====================
 
-def run_agent(question: str, callback=None):
+def run_agent(question: str, callback=None, history: Sequence[dict] | None = None):
     """Main execution engine method with optional step-by-step callback"""
     global _ACTIVE_CALLBACK
     _ACTIVE_CALLBACK = callback
@@ -597,7 +668,7 @@ def run_agent(question: str, callback=None):
         return {"error": "LangGraph is not configured correctly."}
 
     initial_state = AgentState(
-        messages=[{"role": "user", "content": question}],
+        messages=_build_agent_messages(question, history),
         selected_skill=None,
         selected_mcp=None,
         mcp_input=None,
