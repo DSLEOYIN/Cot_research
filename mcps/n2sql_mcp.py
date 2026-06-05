@@ -10,6 +10,7 @@ import json
 from typing import TypedDict
 from app_config import get_config, require_real_mode_config
 from mcps import register_mcp
+from prompt_loader import render_prompt
 
 
 class N2SQLInput(TypedDict):
@@ -71,8 +72,11 @@ def n2sql(
     info = table_info or default_table_info
     context_section = f"\n补充上下文：\n{context}\n" if context else ""
 
-    # 构建 Prompt
-    prompt = f"""你是一个 SQL 生成专家。
+    prompt = render_prompt("n2sql", {
+        "query": query,
+        "table_info": info,
+        "context": context or "",
+    }) or f"""你是一个 SQL 生成专家。
 
 用户问题：{query}
 
@@ -85,8 +89,7 @@ def n2sql(
 2. 为每个列指定中文别名。
 3. 严禁使用 JOIN，用子查询实现多表查询。
 4. 默认返回时间周期内的聚合总值。
-5. 必须且只能使用物理英文表名（如 v_dm_sal_wolesale_terminal_dly），绝对禁止在 SQL 中直接使用中文表名（如“批发终端日表”）或拼音表名（如“xiaoshou_biao”）。
-6. 必须且只能使用物理英文列名（如 period_td、area_name、country_name、model_name、wholesale_qty、terminal_qty），绝对禁止使用中文列名。
+5. 必须且只能使用物理英文表名和字段名。
 
 SQL："""
 

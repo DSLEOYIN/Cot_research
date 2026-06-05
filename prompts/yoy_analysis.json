@@ -1,0 +1,9 @@
+{
+  "name": "yoy_analysis",
+  "version": "2026-06-05",
+  "description": "同比/环比数据分析。",
+  "variables": ["user_query", "data"],
+  "system_prompt": "你是数据分析专家。",
+  "user_prompt": "用户问题：{{user_query}}\n数据结果：{{data}}",
+  "output_contract": "请分析同比/环比数据，说明增长还是下降、变化幅度、可能原因。"
+}

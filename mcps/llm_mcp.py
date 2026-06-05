@@ -16,6 +16,7 @@ except ImportError:  # Python 3.9
     from typing_extensions import NotRequired
 from app_config import get_config, require_real_mode_config
 from mcps import register_mcp
+from prompt_loader import list_prompt_names, render_prompt
 
 
 class LLMInput(TypedDict):
@@ -27,7 +28,12 @@ class LLMInput(TypedDict):
         "data_analysis",
         "scope_explanation",
         "chat",
-        "yoy_analysis"
+        "yoy_analysis",
+        "internal_data_query",
+        "web_search_query",
+        "web_search_answer",
+        "web_compare_analysis",
+        "data_web_compare_analysis"
     ]]
     model: NotRequired[str]
     temperature: NotRequired[float]
@@ -123,7 +129,74 @@ SQL：{sql}
 请分析同比/环比数据，给出：
 1. 增长还是下降
 2. 变化幅度
-3. 可能的原因分析"""
+3. 可能的原因分析""",
+
+    "web_search_query": """你是搜索词生成助手。
+
+当前用户问题：{user_query}
+最近会话上下文：
+{conversation_context}
+
+请生成一句适合网页搜索框使用的简洁搜索词。要求：
+- 只输出搜索词
+- 不要输出解释
+- 不要包含内部真实数据明细
+- 优先保留行业、地区、时间、品牌、指标等关键词
+- 在当前业务场景中，用户说“国际”默认指“广汽国际”，不要理解为全球/国际形势""",
+
+    "internal_data_query": """你是内部数据查询提取助手。
+
+用户原始问题：{user_query}
+
+请从原始问题中提取只需要查询内部数据库的子问题。要求：
+- 只输出内部数据查询问题
+- 去掉联网搜索、竞品、公开资料、外部数据、深度分析等非 SQL 查询诉求
+- 保留组织、地区、时间、指标
+- 在当前业务场景中，用户说“国际”默认指“广汽国际”
+- 不要输出 SQL
+- 不要输出解释""",
+
+    "web_search_answer": """你是汽车行业信息分析助手。
+
+用户问题：{user_query}
+联网检索结果：
+{web_results}
+
+请基于联网检索结果回答用户问题。要求：
+- 先给结论
+- 简要说明依据
+- 如果搜索结果不足或不一致，要明确说明不确定性""",
+
+    "web_compare_analysis": """你是汽车行业数据分析师。
+
+用户问题：{user_query}
+最近会话上下文与内部真实数据：
+{conversation_context}
+联网检索结果：
+{web_results}
+
+请结合内部真实数据和网上公开信息做对比分析。要求：
+- 区分内部真实数据与外部公开资料
+- 说明二者一致或背离的地方
+- 给出可能原因和后续建议
+- 如果公开资料不足以支撑结论，要明确说明限制""",
+
+    "data_web_compare_analysis": """你是汽车行业数据分析师。
+
+用户问题：{user_query}
+内部查询 SQL：
+{sql}
+内部真实数据：
+{sql_data}
+联网检索结果：
+{web_results}
+
+请结合内部真实数据与联网公开竞品/市场信息做对比分析。要求：
+- 先展示内部数据结论
+- 再总结联网资料中的竞品或市场表现
+- 明确区分内部口径和公开资料口径
+- 分析差异、可能原因和后续建议
+- 如果联网资料不足或口径不一致，要明确说明限制"""
 }
 
 
@@ -136,7 +209,12 @@ def llm(
         "data_analysis",
         "scope_explanation",
         "chat",
-        "yoy_analysis"
+        "yoy_analysis",
+        "internal_data_query",
+        "web_search_query",
+        "web_search_answer",
+        "web_compare_analysis",
+        "data_web_compare_analysis"
     ] | None = None,
     model: str = "DeepSeek-V3.1",
     temperature: float = 0.7,
@@ -156,8 +234,8 @@ def llm(
     Returns:
         LLM 生成的文本或结构化输出
     """
-    # 如果有 prompt_type，使用对应模板
-    if prompt_type and prompt_type in PROMPT_TEMPLATES:
+    # 如果有 prompt_type，优先使用 prompts/*.json 中的可编辑模板
+    if prompt_type:
         values = {
             "user_query": prompt,
             "user_input": prompt,
@@ -168,13 +246,17 @@ def llm(
             "wrong_sql": "",
             "error_message": "",
             "error_type": "",
-            "data": ""
+            "data": "",
+            "conversation_context": "",
+            "web_results": ""
         }
         if template_vars:
             values.update(template_vars)
-        full_prompt = PROMPT_TEMPLATES[prompt_type].format(
-            **values
-        )
+        full_prompt = render_prompt(prompt_type, values)
+        if full_prompt is None and prompt_type in PROMPT_TEMPLATES:
+            full_prompt = PROMPT_TEMPLATES[prompt_type].format(**values)
+        elif full_prompt is None:
+            full_prompt = prompt
     else:
         full_prompt = prompt
 
@@ -303,6 +385,58 @@ def _mock_llm_response(prompt: str, prompt_type: str | None) -> dict:
             "mock": True,
         }
 
+    if prompt_type == "web_search_query":
+        return {
+            "success": True,
+            "text": "广汽国际 2024 销量 竞品 销量 公开数据",
+            "structured_output": None,
+            "error": None,
+            "mock": True,
+        }
+
+    if prompt_type == "internal_data_query":
+        text = prompt
+        for marker in ["并在网上", "并对比", "，并在网上", "，并对比", "并搜索", "并联网"]:
+            if marker in text:
+                text = text.split(marker)[0]
+                break
+        if "国际" in text and "广汽国际" not in text:
+            text = text.replace("国际", "广汽国际")
+        return {
+            "success": True,
+            "text": text.strip(" ，。；;") or "国际2024年销量情况",
+            "structured_output": None,
+            "error": None,
+            "mock": True,
+        }
+
+    if prompt_type == "web_search_answer":
+        return {
+            "success": True,
+            "text": "Mock 联网检索显示：公开资料中可见汽车行业近期关注销量恢复、渠道库存和新能源渗透率变化。建议以检索结果来源进一步核验具体时间和地区口径。",
+            "structured_output": None,
+            "error": None,
+            "mock": True,
+        }
+
+    if prompt_type == "web_compare_analysis":
+        return {
+            "success": True,
+            "text": "Mock 对比分析：内部真实数据体现中东公司销量表现稳健；联网公开资料显示区域汽车需求恢复但竞争加剧。两者整体方向一致，差异可能来自统计口径、时间窗口和品牌结构不同，建议继续跟踪终端转化、库存消化和公开行业月报。",
+            "structured_output": None,
+            "error": None,
+            "mock": True,
+        }
+
+    if prompt_type == "data_web_compare_analysis":
+        return {
+            "success": True,
+            "text": "Mock 内外部对比分析：内部数据查询显示广汽国际 2024 年销量表现稳健；联网检索到的竞品公开销量信息显示，主要竞品在部分市场保持较强增长。两类数据的统计口径、披露周期和区域范围可能不同，建议后续按国家、车型和月份进一步拆解，并核验公开来源口径。",
+            "structured_output": None,
+            "error": None,
+            "mock": True,
+        }
+
     return {
         "success": True,
         "text": f"Mock LLM 已处理请求：{prompt[:120]}",
@@ -332,7 +466,12 @@ MCP_CONFIG = {
                     "data_analysis",
                     "scope_explanation",
                     "chat",
-                    "yoy_analysis"
+                    "yoy_analysis",
+                    "internal_data_query",
+                    "web_search_query",
+                    "web_search_answer",
+                    "web_compare_analysis",
+                    "data_web_compare_analysis"
                 ],
                 "description": "提示词类型"
             },
@@ -358,7 +497,7 @@ MCP_CONFIG = {
         },
         "required": ["prompt"]
     },
-    "prompt_templates": list(PROMPT_TEMPLATES.keys()),
+    "prompt_templates": list_prompt_names() or list(PROMPT_TEMPLATES.keys()),
     "examples": [
         {
             "input": {"prompt": "8月终端量是多少？", "prompt_type": "intent_classification"},

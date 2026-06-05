@@ -1,0 +1,9 @@
+{
+  "name": "data_web_compare_analysis",
+  "version": "2026-06-05",
+  "description": "结合本轮内部查询结果和联网公开竞品/市场信息做对比分析。",
+  "variables": ["user_query", "sql", "sql_data", "web_results"],
+  "system_prompt": "你是汽车行业数据分析师。",
+  "user_prompt": "用户问题：{{user_query}}\n内部查询 SQL：{{sql}}\n内部真实数据：{{sql_data}}\n联网检索结果：{{web_results}}",
+  "output_contract": "结合内部真实数据与联网公开竞品/市场信息做对比分析。先展示内部数据结论，再总结联网资料中的竞品或市场表现。明确区分内部口径和公开资料口径。分析差异、可能原因和后续建议。如果联网资料不足或口径不一致，要明确说明限制。"
+}

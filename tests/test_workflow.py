@@ -39,6 +39,155 @@ def test_mock_chat_workflow_routes_to_chat_skill(monkeypatch):
     assert "保养" in result["messages"][-1]["content"]
 
 
+def test_mock_explicit_web_search_routes_to_web_search_answer(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    result = run_agent("帮我网上搜一下最近中东汽车销量趋势")
+
+    assert "error" not in result
+    assert result["selected_skill"] == "web_search_answer"
+    assert result["is_final"] is True
+    assert any(step.get("decision", "").endswith("原子工具 [web_search]") for step in result["thought_process"])
+    assert "联网检索" in result["messages"][-1]["content"]
+
+
+def test_mock_web_compare_uses_history_and_web_search(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    history = [
+        {"role": "user", "content": "2023年6月中东公司的销量是多少？"},
+        {"role": "assistant", "content": "中东公司终端量 2311，批发量 2160。"},
+    ]
+
+    result = run_agent("和网上公开的行业情况对比一下，分析为什么会这样", history=history)
+
+    assert "error" not in result
+    assert result["selected_skill"] == "web_compare_analysis"
+    assert result["is_final"] is True
+    assert any(step.get("mcp_input", {}).get("prompt_type") == "web_search_query" for step in result["thought_process"])
+    assert any(step.get("decision", "").endswith("原子工具 [web_search]") for step in result["thought_process"])
+    compare_steps = [
+        step for step in result["thought_process"]
+        if step.get("mcp_input", {}).get("prompt_type") == "web_compare_analysis"
+    ]
+    assert compare_steps
+    assert "中东公司终端量 2311" in compare_steps[0]["mcp_input"]["template_vars"]["conversation_context"]
+    assert "内部真实数据" in result["messages"][-1]["content"]
+
+
+def test_mock_data_and_web_request_routes_to_data_web_compare(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    result = run_agent("国际24年的销量情况，并在网上搜索一下竞品的销量情况")
+
+    assert "error" not in result
+    assert result["selected_skill"] == "data_web_compare_analysis"
+    assert result["is_final"] is True
+
+    decisions = [step.get("decision", "") for step in result["thought_process"]]
+    assert any(decision.endswith("原子工具 [knowledge_retrieval]") for decision in decisions)
+    assert any(decision.endswith("原子工具 [n2sql]") for decision in decisions)
+    assert any(decision.endswith("原子工具 [sql_executor]") for decision in decisions)
+    assert any(decision.endswith("原子工具 [web_search]") for decision in decisions)
+
+    final_llm_steps = [
+        step for step in result["thought_process"]
+        if step.get("mcp_input", {}).get("prompt_type") == "data_web_compare_analysis"
+    ]
+    assert final_llm_steps
+    assert final_llm_steps[0]["mcp_input"]["template_vars"]["sql_data"]
+    assert final_llm_steps[0]["mcp_input"]["template_vars"]["web_results"]
+    assert "内外部对比分析" in result["messages"][-1]["content"]
+
+
+def test_mock_external_data_compare_routes_to_data_web_compare(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    result = run_agent("国际24年的销量，并对比外部数据进行深度分析")
+
+    assert "error" not in result
+    assert result["selected_skill"] == "data_web_compare_analysis"
+    assert result["is_final"] is True
+
+    extraction_steps = [
+        step for step in result["thought_process"]
+        if step.get("mcp_input", {}).get("prompt_type") == "internal_data_query"
+    ]
+    assert extraction_steps
+    assert "外部数据" not in extraction_steps[0]["llm_output"]
+
+    sql_steps = [
+        step for step in result["thought_process"]
+        if step.get("decision", "").endswith("原子工具 [sql_executor]")
+    ]
+    assert sql_steps
+    assert sql_steps[0]["mcp_input"]["query"].strip().upper().startswith("SELECT")
+    assert result["thought_process"][-1]["step_type"] == "final_answer"
+
+
+def test_mock_business_international_alias_used_for_data_and_web(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    result = run_agent("国际24年的销量，并对比外部数据进行深度分析")
+
+    extraction_steps = [
+        step for step in result["thought_process"]
+        if step.get("mcp_input", {}).get("prompt_type") == "internal_data_query"
+    ]
+    web_steps = [
+        step for step in result["thought_process"]
+        if step.get("decision", "").endswith("原子工具 [web_search]")
+    ]
+
+    assert extraction_steps
+    assert "广汽国际" in extraction_steps[0]["llm_output"]
+    assert web_steps
+    assert "广汽国际" in web_steps[0]["mcp_input"]["query"]
+
+
+def test_mock_followup_after_data_web_compare_keeps_analysis_context(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    history = [
+        {"role": "user", "content": "国际24年的销量，并对比外部数据进行深度分析"},
+        {
+            "role": "assistant",
+            "content": "Mock 内外部对比分析：内部数据查询显示广汽国际 2024 年销量表现稳健；联网检索到的竞品公开销量信息显示，主要竞品在部分市场保持较强增长。",
+        },
+    ]
+
+    result = run_agent("为什么会这样？继续展开原因", history=history)
+
+    assert result["selected_skill"] == "web_compare_analysis"
+    assert any(step.get("decision", "").endswith("原子工具 [web_search]") for step in result["thought_process"])
+    assert "内部真实数据" in result["messages"][-1]["content"]
+
+
+def test_mock_competitor_followup_reuses_prior_data_without_sql(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    history = [
+        {"role": "user", "content": "国际24年的销量，并对比外部数据进行深度分析"},
+        {
+            "role": "assistant",
+            "content": "内部数据查询显示广汽国际 2024 年销量表现稳健；联网检索到的竞品公开销量信息显示，主要竞品在部分市场保持较强增长。",
+        },
+    ]
+
+    result = run_agent("和其他竞品对比呢", history=history)
+
+    assert result["selected_skill"] == "web_compare_analysis"
+    assert any(step.get("decision", "").endswith("原子工具 [web_search]") for step in result["thought_process"])
+    assert not any(step.get("decision", "").endswith("原子工具 [sql_executor]") for step in result["thought_process"])
+
+
 def test_run_agent_injects_recent_session_memory(monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")

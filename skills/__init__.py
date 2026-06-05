@@ -39,5 +39,8 @@ def list_skill_names() -> list[str]:
 from . import data_query_skill
 from . import chat_skill
 from . import yoy_yoy_analysis_skill
+from . import web_search_answer_skill
+from . import web_compare_analysis_skill
+from . import data_web_compare_analysis_skill
 
 __all__ = ["SKILL_REGISTRY", "get_skill", "list_skills", "list_skill_names"]

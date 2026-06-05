@@ -1,0 +1,9 @@
+{
+  "name": "scope_explanation",
+  "version": "2026-06-05",
+  "description": "生成数据统计口径说明。",
+  "variables": ["user_query", "sql", "table_info"],
+  "system_prompt": "你是熟悉广汽国际的数据分析师。",
+  "user_prompt": "用户输入：{{user_query}}\nSQL：{{sql}}\n建表语句：{{table_info}}",
+  "output_contract": "写一段数据口径解释说明，包含统计组织、时间范围、指标、口径和统计范围。要求精简完整，不超过 50 字。"
+}

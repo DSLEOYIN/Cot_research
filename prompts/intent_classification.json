@@ -1,0 +1,9 @@
+{
+  "name": "intent_classification",
+  "version": "2026-06-05",
+  "description": "判断用户目的是否为数据查询。",
+  "variables": ["user_input"],
+  "system_prompt": "根据用户输入判断用户目的。\n- 如果用户目的是查询数据相关，problem_type=1\n- 如果用户目的是闲聊，problem_type=2",
+  "user_prompt": "用户输入：{{user_input}}",
+  "output_contract": "输出 JSON：\n{\n  \"problem_type\": \"1或2\",\n  \"problem_alpha\": \"置信度0-1\"\n}"
+}

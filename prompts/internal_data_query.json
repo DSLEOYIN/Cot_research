@@ -1,0 +1,9 @@
+{
+  "name": "internal_data_query",
+  "version": "2026-06-05",
+  "description": "从复合问题中提取内部数据库查询子问题。",
+  "variables": ["user_query"],
+  "system_prompt": "你是内部数据查询提取助手。",
+  "user_prompt": "用户原始问题：{{user_query}}",
+  "output_contract": "只输出内部数据查询问题。去掉联网搜索、竞品、公开资料、外部数据、深度分析等非 SQL 查询诉求。保留组织、地区、时间、指标。在当前业务场景中，用户说“国际”默认指“广汽国际”。不要输出 SQL，不要解释。"
+}

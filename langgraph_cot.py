@@ -13,6 +13,7 @@ import re
 from typing import TypedDict, Sequence, Literal, Any, Optional, List
 from dataclasses import dataclass
 from app_config import get_config
+from prompt_loader import render_prompt
 
 # Import registered MCPs and Skills
 from mcps import execute_mcp, list_mcps
@@ -147,6 +148,11 @@ def _format_recent_memory(history_messages: Sequence[dict]) -> str:
     return "\n".join(lines)
 
 
+def _recent_history_text(history_messages: Sequence[dict], max_chars: int = 1600) -> str:
+    text = "\n".join((message.get("content") or "") for message in history_messages)
+    return text[-max_chars:]
+
+
 def _query_with_memory(current_question: str, history_messages: Sequence[dict]) -> str:
     memory_text = _format_recent_memory(history_messages)
     if not memory_text:
@@ -157,6 +163,41 @@ def _query_with_memory(current_question: str, history_messages: Sequence[dict]) 
         f"{memory_text}\n\n"
         "请优先回答当前问题；当当前问题依赖上文时，结合最近会话上下文理解指代、时间、组织和指标。"
     )
+
+
+def _route_contextual_followup(user_question: str, history_messages: Sequence[dict]) -> tuple[str | None, str]:
+    q_lower = user_question.lower()
+    recent_history_text = _recent_history_text(history_messages)
+
+    web_keywords = [
+        "联网", "网上", "网络", "公开资料", "公开信息", "搜索", "搜一下", "查一下",
+        "新闻", "最新", "今天", "行业趋势", "行业情况", "外部信息", "外部数据", "竞品"
+    ]
+    context_keywords = ["刚才", "上文", "上面", "之前", "前面", "这个结果", "真实数据", "内部数据", "对比", "比较", "解释", "分析", "竞品"]
+    data_keywords = ["销量", "终端量", "批发量", "库存", "订单", "排产", "达成", "销售", "国家", "大区", "公司"]
+    internal_subject_keywords = ["广汽国际", "国际", "中东公司", "内部", "真实数据", "内部数据", "我司", "本公司"]
+    followup_keywords = ["为什么", "原因", "继续", "展开", "深挖", "详细", "再分析", "建议", "怎么办", "怎么做", "接着", "进一步", "然后呢", "这个呢", "那呢", "对比呢", "竞品"]
+
+    has_web_intent = any(k in q_lower for k in web_keywords)
+    has_context_compare_intent = any(k in q_lower for k in context_keywords)
+    has_data_intent = any(k in q_lower for k in data_keywords)
+    has_internal_subject = any(k in q_lower for k in internal_subject_keywords)
+    has_followup_intent = any(k in q_lower for k in followup_keywords)
+    recent_has_data_context = any(k in recent_history_text for k in data_keywords + ["内部真实数据", "内部数据查询", "SQL", "数据查询结果", "销量表现"])
+    recent_has_web_context = any(k in recent_history_text for k in web_keywords + ["联网检索", "外部公开资料", "公开资料"])
+
+    # A current-turn composite request must contain a fresh internal data query.
+    # Short follow-ups like "和其他竞品对比呢" should reuse prior data instead of regenerating SQL.
+    if has_followup_intent and recent_has_data_context and (has_web_intent or has_context_compare_intent or recent_has_web_context):
+        return "web_compare_analysis", "检测到当前问题是基于上一轮数据/分析上下文的竞品或外部对比追问，复用会话上下文并路由至[联网对比分析]技能。"
+
+    if has_followup_intent and recent_has_data_context:
+        return "data_query", "检测到当前问题是对上一轮数据分析的追问，继承会话上下文并路由至[数据查询与分析]技能。"
+
+    if has_web_intent and has_data_intent and has_internal_subject:
+        return "data_web_compare_analysis", "检测到当前句子同时包含明确内部业务数据查询与联网竞品/公开资料检索诉求，路由至[内部数据与联网竞品对比分析]技能。"
+
+    return None, ""
 
 
 def _build_agent_messages(question: str, history: Sequence[dict] | None = None) -> list[dict]:
@@ -277,6 +318,8 @@ def step1_select_skill(state: AgentState) -> AgentState:
     global _ACTIVE_CALLBACK
     messages = list(state["messages"])
     user_question = _current_user_question(messages)
+    history_messages = _history_before_current_user(messages)
+    contextual_skill, contextual_reason = _route_contextual_followup(user_question, history_messages)
 
     # Load dynamic registered skills
     skills_list = list_skills()
@@ -296,6 +339,12 @@ def step1_select_skill(state: AgentState) -> AgentState:
 2. 从上述可用技能中选择最精确匹配的一个。输出的技能名必须是上述技能配置中定义的英文 name 标识，例如：data_query、yoy_yoy_analysis 或 chat。
 3. 详细给出你选择这个技能的业务原因。
 
+**多轮追问规则：**
+- 如果当前问题是“和其他竞品对比呢”“为什么会这样”“继续展开原因”等短追问，必须结合最近会话上下文理解，不能按孤立闲聊处理。
+- 如果上文已有内部数据结果，当前问题只要求竞品/外部/公开资料对比，应选择 web_compare_analysis，复用上文数据，不要重新选择 data_web_compare_analysis。
+- 只有当前这一句话本身明确包含新的内部数据查询对象、时间和指标，同时又要求联网/竞品/外部数据时，才选择 data_web_compare_analysis。
+- 在当前业务场景中，用户说“国际”默认指“广汽国际”，不要理解为宏观国际形势。
+
 **输出格式必须符合以下契约结构：**
 [SKILL]技能英文Name[/SKILL]
 [REASON]选择理由[/REASON]
@@ -307,16 +356,33 @@ def step1_select_skill(state: AgentState) -> AgentState:
 [REASON]用户提问涉及销量数据查询，符合 data_query 技能场景[/REASON]
 """
 
-    full_messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_question}]
+    history_text = _format_recent_memory(history_messages) or "无"
+    router_prompt = render_prompt(
+        "router",
+        {
+            "skill_list": skill_list_prompt,
+            "history": history_text,
+            "query": user_question,
+        },
+    )
+    if router_prompt:
+        full_messages = [{"role": "user", "content": router_prompt}]
+    else:
+        full_messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"最近会话上下文：\n{history_text}\n\n当前用户问题：{user_question}"},
+        ]
 
     try:
         config = get_config()
-        if config.mock_enabled or not config.model.api_key:
+        if contextual_skill:
+            content = f"[SKILL]{contextual_skill}[/SKILL]\n[REASON]{contextual_reason}[/REASON]"
+        elif config.mock_enabled or not config.model.api_key:
             return mock_select_skill(state)
-
-        llm = DeepSeekLLM(api_key=config.model.api_key)
-        response = llm.invoke(full_messages)
-        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        else:
+            llm = DeepSeekLLM(api_key=config.model.api_key)
+            response = llm.invoke(full_messages)
+            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception as e:
         print(f"LLM Routing failed, falling back to Mock. Error: {e}")
         return mock_select_skill(state)
@@ -574,14 +640,50 @@ def mock_select_skill(state: AgentState) -> AgentState:
     global _ACTIVE_CALLBACK
     messages = list(state["messages"])
     user_question = _current_user_question(messages)
+    history_messages = _history_before_current_user(messages)
+    recent_history_text = _recent_history_text(history_messages)
+    contextual_skill, contextual_reason = _route_contextual_followup(user_question, history_messages)
 
     selected_skill = "chat"
     reason = "未检测到 API Key，触发本地意图分析规则系统。"
 
     # Check keyword patterns
     q_lower = user_question.lower()
+    web_keywords = [
+        "联网", "网上", "网络", "公开资料", "公开信息", "搜索", "搜一下", "查一下",
+        "新闻", "最新", "今天", "行业趋势", "行业情况", "外部信息", "外部数据"
+    ]
+    context_keywords = ["刚才", "上文", "上面", "之前", "前面", "这个结果", "真实数据", "内部数据", "对比", "比较", "解释", "分析"]
     data_keywords = ["销量", "终端量", "批发量", "库存", "订单", "排产", "达成", "销售", "国家", "大区", "公司"]
-    if any(k in q_lower for k in data_keywords):
+    internal_subject_keywords = ["广汽国际", "国际", "中东公司", "内部", "真实数据", "内部数据", "我司", "本公司"]
+    followup_keywords = ["为什么", "原因", "继续", "展开", "深挖", "详细", "再分析", "建议", "怎么办", "怎么做", "接着", "进一步", "然后呢", "这个呢", "那呢"]
+    has_web_intent = any(k in q_lower for k in web_keywords)
+    has_context_compare_intent = any(k in q_lower for k in context_keywords)
+    has_data_intent = any(k in q_lower for k in data_keywords)
+    has_internal_subject = any(k in q_lower for k in internal_subject_keywords)
+    has_followup_intent = any(k in q_lower for k in followup_keywords)
+    recent_has_data_context = any(k in recent_history_text for k in data_keywords + ["内部真实数据", "内部数据查询", "SQL", "数据查询结果"])
+    recent_has_web_context = any(k in recent_history_text for k in web_keywords + ["联网检索", "外部公开资料", "竞品", "公开资料"])
+
+    if contextual_skill:
+        selected_skill = contextual_skill
+        reason += f" {contextual_reason}"
+    elif has_web_intent and has_data_intent and has_internal_subject:
+        selected_skill = "data_web_compare_analysis"
+        reason += " 检测到内部业务数据查询与联网竞品/公开资料检索的复合诉求，路由至[内部数据与联网竞品对比分析]技能。"
+    elif has_web_intent and has_context_compare_intent:
+        selected_skill = "web_compare_analysis"
+        reason += " 检测到联网信息和上文/真实数据对比分析诉求，路由至[联网对比分析]技能。"
+    elif has_web_intent:
+        selected_skill = "web_search_answer"
+        reason += " 检测到明确联网检索诉求，路由至[联网检索问答]技能。"
+    elif has_followup_intent and recent_has_data_context and recent_has_web_context:
+        selected_skill = "web_compare_analysis"
+        reason += " 检测到当前问题是对上一轮内外部对比分析的追问，继承会话上下文并路由至[联网对比分析]技能。"
+    elif has_followup_intent and recent_has_data_context:
+        selected_skill = "data_query"
+        reason += " 检测到当前问题是对上一轮数据分析的追问，继承会话上下文并路由至[数据查询与分析]技能。"
+    elif has_data_intent:
         if any(k in q_lower for k in ["同比", "环比", "增长"]):
             selected_skill = "yoy_yoy_analysis"
             reason += " 检测到业务指标及同比/环比关键词，路由至[同环比分析]技能。"

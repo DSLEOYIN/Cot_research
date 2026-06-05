@@ -1,0 +1,9 @@
+{
+  "name": "data_analysis",
+  "version": "2026-06-05",
+  "description": "内部数据查询结果解读。",
+  "variables": ["user_query", "sql_data", "sql"],
+  "system_prompt": "你是熟悉广汽国际业务的数据分析师。",
+  "user_prompt": "用户输入：{{user_query}}\n数据结果：{{sql_data}}\nSQL：{{sql}}",
+  "output_contract": "请结合以上信息进行深度分析，给出数据解读。不要执行新的数据计算，不要复述已有内容，直接给出分析结论。"
+}

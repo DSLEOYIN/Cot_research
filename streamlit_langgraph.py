@@ -274,11 +274,104 @@ def render_split_assistant_content(final_answer_text: str):
         st.markdown(f"<div class='chatbi-scope-note'>{html.escape(scope_section.lstrip('>').strip())}</div>", unsafe_allow_html=True)
 
 
+def extract_sql_preview_table(thought_process) -> str:
+    """Return the latest successful sql_executor markdown table from thought steps."""
+    for step in reversed(thought_process or []):
+        decision = step.get("decision", "")
+        if step.get("step_type") != "execute_mcp" or "原子工具 [sql_executor]" not in decision:
+            continue
+        raw_output = step.get("mcp_output")
+        if not raw_output:
+            continue
+        try:
+            output = json.loads(raw_output) if isinstance(raw_output, str) else raw_output
+        except Exception:
+            continue
+        if not isinstance(output, dict) or output.get("success") is not True:
+            continue
+        data = output.get("data")
+        if isinstance(data, str) and "|" in data:
+            return data
+    return ""
+
+
+def render_live_sql_preview(md_table: str) -> None:
+    """Render SQL result preview as soon as the sql_executor step returns."""
+    if not md_table:
+        return
+    st.markdown("<div class='chatbi-section-label'>数据查询结果</div>", unsafe_allow_html=True)
+    st.markdown(md_table)
+    render_echarts_markdown(md_table)
+
+
 def build_codex_thought_timeline_html(thought_process, selected_skill=None, question="", open_by_default=False, is_running=False):
     """Build compact Codex-style execution timeline markup."""
     if not thought_process:
         running_text = "正在等待执行步骤..." if is_running else "暂无执行明细"
         thought_process = [{"step_type": "pending", "reason": running_text}]
+
+    def _normalize_debug_value(value):
+        if value in (None, "", {}, []):
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            if stripped.startswith("{") or stripped.startswith("["):
+                try:
+                    return json.loads(stripped)
+                except Exception:
+                    return value
+            return value
+        return value
+
+    def _debug_value(value):
+        normalized = _normalize_debug_value(value)
+        if normalized in (None, "", {}, []):
+            return ""
+        if isinstance(normalized, (dict, list)):
+            return json.dumps(normalized, ensure_ascii=False, indent=2, default=str)
+        if isinstance(normalized, str):
+            return normalized
+        try:
+            return json.dumps(normalized, ensure_ascii=False, indent=2, default=str)
+        except Exception:
+            return str(normalized)
+
+    def _debug_blocks(step):
+        sections = []
+        debug_items = [
+            ("入参", step.get("mcp_input")),
+            ("出参", step.get("mcp_output")),
+            ("LLM 输出", step.get("llm_output")),
+            ("最终回答", step.get("final_answer")),
+            ("错误详情", {
+                "error": step.get("error"),
+                "error_type": step.get("error_type"),
+                "failed_step": step.get("failed_step"),
+                "failed_mcp": step.get("failed_mcp"),
+            } if step.get("error") or step.get("error_type") else None),
+        ]
+        for label, value in debug_items:
+            rendered = _debug_value(value)
+            if not rendered:
+                continue
+            sections.append(
+                "<section class='codex-trace-debug-section'>"
+                f"<div class='codex-trace-debug-label'>{html.escape(label)}</div>"
+                f"<pre>{html.escape(rendered)}</pre>"
+                "</section>"
+            )
+        if not sections:
+            return ""
+        return (
+            "<details class='codex-trace-debug'>"
+            "<summary>执行详情</summary>"
+            "<div class='codex-trace-debug-body'>"
+            f"{''.join(sections)}"
+            "</div>"
+            "</details>"
+        )
 
     rows = []
     for step in thought_process:
@@ -325,6 +418,7 @@ def build_codex_thought_timeline_html(thought_process, selected_skill=None, ques
             "<div class='codex-trace-content'>"
             f"<div class='codex-trace-line'><span>{html.escape(title)}</span><code>{html.escape(meta)}</code></div>"
             f"<p>{html.escape(body)}</p>"
+            f"{_debug_blocks(step)}"
             "</div>"
             "</div>"
         )
@@ -755,6 +849,57 @@ st.markdown("""
         font-size: 0.8rem;
         line-height: 1.55;
     }
+    details.codex-trace-debug {
+        margin-top: 10px;
+        border: 1px solid #dbe3ef;
+        border-radius: 8px;
+        background: #ffffff;
+        overflow: hidden;
+    }
+    details.codex-trace-debug summary {
+        min-height: 30px !important;
+        padding: 0 10px !important;
+        justify-content: flex-start !important;
+        color: #374151 !important;
+        font-size: 0.75rem !important;
+        font-weight: 560 !important;
+        background: #f8fafc;
+    }
+    details.codex-trace-debug summary::before {
+        width: 5px !important;
+        height: 5px !important;
+        margin-right: 4px;
+    }
+    .codex-trace-debug-body {
+        border-top: 1px solid #e5e7eb;
+        background: #ffffff;
+    }
+    .codex-trace-debug-section {
+        padding: 10px;
+    }
+    .codex-trace-debug-section + .codex-trace-debug-section {
+        border-top: 1px solid #edf2f7;
+    }
+    .codex-trace-debug-label {
+        margin-bottom: 7px;
+        color: #475569;
+        font-size: 0.72rem;
+        font-weight: 650;
+    }
+    .codex-trace-debug-section pre {
+        margin: 0 !important;
+        padding: 12px !important;
+        max-height: 360px;
+        overflow-x: auto;
+        overflow-y: auto;
+        border-radius: 7px !important;
+        background: #0f172a !important;
+        color: #e5e7eb !important;
+        font-size: 0.72rem !important;
+        line-height: 1.55 !important;
+        white-space: pre;
+        word-break: normal;
+    }
     
     /* Sleek status bar for thinking */
     .status-bar-clean {
@@ -1089,7 +1234,13 @@ for msg_idx, msg in enumerate(active_sess["messages"]):
             question = msg.get("question", "")
             
             if thought_process:
-                render_codex_thought_timeline(thought_process, selected_skill, question)
+                has_error_step = any(step.get("step_type") == "workflow_error" for step in thought_process)
+                render_codex_thought_timeline(
+                    thought_process,
+                    selected_skill,
+                    question,
+                    open_by_default=bool(msg.get("trace_open", False) and has_error_step),
+                )
             
             # Render assistant reply with perfect order: Table -> ECharts -> Analysis -> Scope
             render_split_assistant_content(msg["content"])
@@ -1116,7 +1267,9 @@ if user_query:
     # 3. Create Assistant Message Container and execute Agent
     with st.chat_message("assistant"):
         live_steps = []
+        live_sql_preview_table = {"value": ""}
         trace_placeholder = st.empty()
+        sql_preview_placeholder = st.empty()
         trace_placeholder.markdown(
             build_codex_thought_timeline_html(live_steps, question=user_query, open_by_default=True, is_running=True),
             unsafe_allow_html=True,
@@ -1128,6 +1281,11 @@ if user_query:
                 build_codex_thought_timeline_html(live_steps, question=user_query, open_by_default=True, is_running=True),
                 unsafe_allow_html=True,
             )
+            preview_table = extract_sql_preview_table(live_steps)
+            if preview_table and preview_table != live_sql_preview_table["value"]:
+                live_sql_preview_table["value"] = preview_table
+                with sql_preview_placeholder.container():
+                    render_live_sql_preview(preview_table)
 
         result = run_agent(user_query, callback=step_callback, history=session_history_for_agent)
 
@@ -1149,13 +1307,14 @@ if user_query:
                 "content": f"决策分析执行失败: {result['error']}",
                 "thought_process": live_steps,
                 "selected_skill": None,
-                "question": user_query
+                "question": user_query,
+                "trace_open": True,
             })
         else:
             thought_process = result.get("thought_process", live_steps)
             selected_skill = result.get("selected_skill")
             trace_placeholder.markdown(
-                build_codex_thought_timeline_html(thought_process, selected_skill, user_query, open_by_default=True, is_running=False),
+                build_codex_thought_timeline_html(thought_process, selected_skill, user_query, open_by_default=False, is_running=False),
                 unsafe_allow_html=True,
             )
 
@@ -1173,6 +1332,13 @@ if user_query:
                 stream_typewriter_answer(final_answer_text)
             typewriter_placeholder.empty()
 
+            final_has_table = "### 📊 数据查询结果" in final_answer_text or "### 📊 同环比计算数据" in final_answer_text
+            if final_has_table:
+                sql_preview_placeholder.empty()
+            elif live_sql_preview_table["value"]:
+                with sql_preview_placeholder.container():
+                    render_live_sql_preview(live_sql_preview_table["value"])
+
             render_split_assistant_content(final_answer_text)
 
             active_sess["messages"].append({
@@ -1180,7 +1346,8 @@ if user_query:
                 "content": final_answer_text,
                 "thought_process": thought_process,
                 "selected_skill": selected_skill,
-                "question": user_query
+                "question": user_query,
+                "trace_open": False,
             })
 
 

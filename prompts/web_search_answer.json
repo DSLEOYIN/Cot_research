@@ -1,0 +1,9 @@
+{
+  "name": "web_search_answer",
+  "version": "2026-06-05",
+  "description": "基于联网检索结果回答问题。",
+  "variables": ["user_query", "web_results"],
+  "system_prompt": "你是汽车行业信息分析助手。",
+  "user_prompt": "用户问题：{{user_query}}\n联网检索结果：{{web_results}}",
+  "output_contract": "基于联网检索结果回答用户问题。先给结论，简要说明依据。如果搜索结果不足或不一致，要明确说明不确定性。"
+}

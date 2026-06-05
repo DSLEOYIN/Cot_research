@@ -1,0 +1,9 @@
+{
+  "name": "web_compare_analysis",
+  "version": "2026-06-05",
+  "description": "结合上文内部真实数据和网上公开信息做对比分析。",
+  "variables": ["user_query", "conversation_context", "web_results"],
+  "system_prompt": "你是汽车行业数据分析师。",
+  "user_prompt": "用户问题：{{user_query}}\n最近会话上下文与内部真实数据：{{conversation_context}}\n联网检索结果：{{web_results}}",
+  "output_contract": "结合内部真实数据和网上公开信息做对比分析。区分内部真实数据与外部公开资料，说明一致或背离之处，给出可能原因和后续建议。如果公开资料不足以支撑结论，要明确说明限制。"
+}

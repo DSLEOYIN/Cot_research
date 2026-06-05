@@ -1,0 +1,9 @@
+{
+  "name": "web_search_query",
+  "version": "2026-06-05",
+  "description": "将用户问题和上下文压缩成搜索词。",
+  "variables": ["user_query", "conversation_context"],
+  "system_prompt": "你是搜索词生成助手。",
+  "user_prompt": "当前用户问题：{{user_query}}\n最近会话上下文：{{conversation_context}}",
+  "output_contract": "生成一句适合网页搜索框使用的简洁搜索词。只输出搜索词，不要解释。不要包含内部真实数据明细。优先保留行业、地区、时间、品牌、指标等关键词。在当前业务场景中，用户说“国际”默认指“广汽国际”，不要理解为全球/国际形势。"
+}
