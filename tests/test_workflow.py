@@ -129,6 +129,21 @@ def test_mock_external_data_compare_routes_to_data_web_compare(monkeypatch):
     assert result["thought_process"][-1]["step_type"] == "final_answer"
 
 
+def test_mock_global_market_performance_routes_to_data_web_compare(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    result = run_agent("那我想知道广汽国际24年在全球国际市场卖的怎么样了？")
+
+    assert "error" not in result
+    assert result["selected_skill"] == "data_web_compare_analysis"
+    assert result["is_final"] is True
+    assert any(
+        step.get("decision", "").endswith("原子工具 [web_search]")
+        for step in result["thought_process"]
+    )
+
+
 def test_mock_business_international_alias_used_for_data_and_web(monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")

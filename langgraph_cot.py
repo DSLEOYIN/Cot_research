@@ -173,12 +173,17 @@ def _route_contextual_followup(user_question: str, history_messages: Sequence[di
         "联网", "网上", "网络", "公开资料", "公开信息", "搜索", "搜一下", "查一下",
         "新闻", "最新", "今天", "行业趋势", "行业情况", "外部信息", "外部数据", "竞品"
     ]
+    external_market_keywords = [
+        "全球", "全球市场", "国际市场", "海外市场", "公开市场", "行业市场",
+        "市场表现", "市场情况", "卖得怎么样", "卖的怎么样"
+    ]
     context_keywords = ["刚才", "上文", "上面", "之前", "前面", "这个结果", "真实数据", "内部数据", "对比", "比较", "解释", "分析", "竞品"]
-    data_keywords = ["销量", "终端量", "批发量", "库存", "订单", "排产", "达成", "销售", "国家", "大区", "公司"]
+    data_keywords = ["销量", "终端量", "批发量", "库存", "订单", "排产", "达成", "销售", "卖", "表现", "国家", "大区", "公司"]
     internal_subject_keywords = ["广汽国际", "国际", "中东公司", "内部", "真实数据", "内部数据", "我司", "本公司"]
     followup_keywords = ["为什么", "原因", "继续", "展开", "深挖", "详细", "再分析", "建议", "怎么办", "怎么做", "接着", "进一步", "然后呢", "这个呢", "那呢", "对比呢", "竞品"]
 
     has_web_intent = any(k in q_lower for k in web_keywords)
+    has_external_market_intent = any(k in q_lower for k in external_market_keywords)
     has_context_compare_intent = any(k in q_lower for k in context_keywords)
     has_data_intent = any(k in q_lower for k in data_keywords)
     has_internal_subject = any(k in q_lower for k in internal_subject_keywords)
@@ -194,8 +199,8 @@ def _route_contextual_followup(user_question: str, history_messages: Sequence[di
     if has_followup_intent and recent_has_data_context:
         return "data_query", "检测到当前问题是对上一轮数据分析的追问，继承会话上下文并路由至[数据查询与分析]技能。"
 
-    if has_web_intent and has_data_intent and has_internal_subject:
-        return "data_web_compare_analysis", "检测到当前句子同时包含明确内部业务数据查询与联网竞品/公开资料检索诉求，路由至[内部数据与联网竞品对比分析]技能。"
+    if (has_web_intent or has_external_market_intent) and has_data_intent and has_internal_subject:
+        return "data_web_compare_analysis", "检测到当前句子同时包含内部主体/业务指标和全球或公开市场表现诉求，需要内部数据与联网公开资料共同支撑，路由至[内部数据与联网竞品对比分析]技能。"
 
     return None, ""
 
@@ -653,11 +658,16 @@ def mock_select_skill(state: AgentState) -> AgentState:
         "联网", "网上", "网络", "公开资料", "公开信息", "搜索", "搜一下", "查一下",
         "新闻", "最新", "今天", "行业趋势", "行业情况", "外部信息", "外部数据"
     ]
+    external_market_keywords = [
+        "全球", "全球市场", "国际市场", "海外市场", "公开市场", "行业市场",
+        "市场表现", "市场情况", "卖得怎么样", "卖的怎么样"
+    ]
     context_keywords = ["刚才", "上文", "上面", "之前", "前面", "这个结果", "真实数据", "内部数据", "对比", "比较", "解释", "分析"]
-    data_keywords = ["销量", "终端量", "批发量", "库存", "订单", "排产", "达成", "销售", "国家", "大区", "公司"]
+    data_keywords = ["销量", "终端量", "批发量", "库存", "订单", "排产", "达成", "销售", "卖", "表现", "国家", "大区", "公司"]
     internal_subject_keywords = ["广汽国际", "国际", "中东公司", "内部", "真实数据", "内部数据", "我司", "本公司"]
     followup_keywords = ["为什么", "原因", "继续", "展开", "深挖", "详细", "再分析", "建议", "怎么办", "怎么做", "接着", "进一步", "然后呢", "这个呢", "那呢"]
     has_web_intent = any(k in q_lower for k in web_keywords)
+    has_external_market_intent = any(k in q_lower for k in external_market_keywords)
     has_context_compare_intent = any(k in q_lower for k in context_keywords)
     has_data_intent = any(k in q_lower for k in data_keywords)
     has_internal_subject = any(k in q_lower for k in internal_subject_keywords)
@@ -668,9 +678,9 @@ def mock_select_skill(state: AgentState) -> AgentState:
     if contextual_skill:
         selected_skill = contextual_skill
         reason += f" {contextual_reason}"
-    elif has_web_intent and has_data_intent and has_internal_subject:
+    elif (has_web_intent or has_external_market_intent) and has_data_intent and has_internal_subject:
         selected_skill = "data_web_compare_analysis"
-        reason += " 检测到内部业务数据查询与联网竞品/公开资料检索的复合诉求，路由至[内部数据与联网竞品对比分析]技能。"
+        reason += " 检测到内部主体/业务指标与全球或公开市场表现的复合诉求，需要内部数据和联网公开资料共同支撑，路由至[内部数据与联网竞品对比分析]技能。"
     elif has_web_intent and has_context_compare_intent:
         selected_skill = "web_compare_analysis"
         reason += " 检测到联网信息和上文/真实数据对比分析诉求，路由至[联网对比分析]技能。"
