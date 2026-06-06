@@ -23,6 +23,19 @@ $env:APP_MODE = "mock"
 streamlit run streamlit_langgraph.py
 ```
 
+生产 Web 入口可通过 FastAPI + Vite 启动：
+
+```powershell
+$env:APP_MODE = "mock"
+uvicorn api_server:app --host 127.0.0.1 --port 8000 --reload
+```
+
+```powershell
+cd web_frontend
+npm install
+npm run dev
+```
+
 启动后可尝试：
 
 - 本月中东公司销量多少？
@@ -113,6 +126,9 @@ pytest -q
 ## 项目结构
 
 - `langgraph_cot.py`: Skill 路由与 SOP workflow 执行器。
+- `api_server.py`: 生产 Web 前端使用的 FastAPI API 与 SSE 入口。
+- `chat_repository.py`: SQLite 会话、消息、思考步骤持久化。
+- `web_frontend/`: React 生产 Web 前端工程，复用原型助手放大态视觉资源。
 - `app_config.py`: 统一配置读取入口。
 - `scripts/check_mcps.py`: MCP 健康检查脚本。
 - `skills/`: 业务 SOP 层。

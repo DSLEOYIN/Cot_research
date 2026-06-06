@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from contextvars import ContextVar
 from typing import TypedDict, Sequence, Literal, Any, Optional, List
 from dataclasses import dataclass
 from app_config import get_config
@@ -19,8 +20,8 @@ from prompt_loader import render_prompt
 from mcps import execute_mcp, list_mcps
 from skills import get_skill, list_skills
 
-# Active global callback for streaming status updates
-_ACTIVE_CALLBACK = None
+# Active callback isolated per request/thread for streaming status updates.
+_ACTIVE_CALLBACK: ContextVar[Any] = ContextVar("active_callback", default=None)
 
 
 # ==================== Variable Template Resolver ====================
@@ -93,9 +94,14 @@ def _strip_sql_fence(text: str) -> str:
 
 def _append_thought(thought_process: list, thought_entry: dict) -> None:
     thought_process.append(thought_entry)
-    if _ACTIVE_CALLBACK:
+    _emit_callback(thought_entry)
+
+
+def _emit_callback(thought_entry: dict) -> None:
+    callback = _ACTIVE_CALLBACK.get()
+    if callback:
         try:
-            _ACTIVE_CALLBACK(thought_entry)
+            callback(thought_entry)
         except Exception:
             pass
 
@@ -205,6 +211,58 @@ def _route_contextual_followup(user_question: str, history_messages: Sequence[di
     return None, ""
 
 
+def _intent_flags(user_question: str, history_messages: Sequence[dict] | None = None) -> dict[str, bool]:
+    q_lower = user_question.lower()
+    recent_history_text = _recent_history_text(history_messages or [])
+    web_keywords = [
+        "联网", "网上", "网络", "公开资料", "公开信息", "搜索", "搜一下", "查一下",
+        "新闻", "最新", "今天", "行业趋势", "行业情况", "外部信息", "外部数据", "竞品"
+    ]
+    external_market_keywords = [
+        "全球", "全球市场", "国际市场", "海外市场", "公开市场", "行业市场",
+        "市场表现", "市场情况", "卖得怎么样", "卖的怎么样"
+    ]
+    data_keywords = ["销量", "终端量", "批发量", "库存", "订单", "排产", "达成", "销售", "卖", "表现", "国家", "大区", "公司"]
+    internal_subject_keywords = ["广汽国际", "国际", "中东公司", "内部", "真实数据", "内部数据", "我司", "本公司"]
+    followup_keywords = ["为什么", "原因", "继续", "展开", "深挖", "详细", "再分析", "建议", "怎么办", "怎么做", "接着", "进一步", "然后呢", "这个呢", "那呢", "对比呢", "竞品"]
+    recent_has_data_context = any(k in recent_history_text for k in data_keywords + ["内部真实数据", "内部数据查询", "SQL", "数据查询结果", "销量表现"])
+
+    return {
+        "has_web_intent": any(k in q_lower for k in web_keywords),
+        "has_external_market_intent": any(k in q_lower for k in external_market_keywords),
+        "has_data_intent": any(k in q_lower for k in data_keywords),
+        "has_internal_subject": any(k in q_lower for k in internal_subject_keywords),
+        "has_followup_intent": any(k in q_lower for k in followup_keywords),
+        "recent_has_data_context": recent_has_data_context,
+        "has_yoy_intent": any(k in q_lower for k in ["同比", "环比", "增长"]),
+    }
+
+
+def _skill_allowed_by_web_toggle(skill_name: str, web_search_enabled: bool) -> bool:
+    if web_search_enabled:
+        return True
+    return skill_name not in {"web_search_answer", "web_compare_analysis", "data_web_compare_analysis"}
+
+
+def _route_by_web_toggle(user_question: str, history_messages: Sequence[dict], web_search_enabled: bool) -> tuple[str | None, str]:
+    flags = _intent_flags(user_question, history_messages)
+    has_web_or_external = flags["has_web_intent"] or flags["has_external_market_intent"]
+    has_internal_data_request = flags["has_data_intent"] and flags["has_internal_subject"]
+
+    if not web_search_enabled and flags["has_web_intent"]:
+        return "__web_disabled__", "用户明确要求联网检索，但本轮联网搜索开关关闭。"
+
+    if web_search_enabled:
+        if flags["has_followup_intent"] and flags["recent_has_data_context"]:
+            return "web_compare_analysis", "联网搜索已开启，检测到当前问题依赖上文内部数据，路由至[联网对比分析]技能。"
+        if has_internal_data_request:
+            return "data_web_compare_analysis", "联网搜索已开启，内部数据问题需同时结合外部公开资料，路由至[内部数据与联网竞品对比分析]技能。"
+        if has_web_or_external:
+            return "web_search_answer", "联网搜索已开启，检测到公开资料检索诉求，路由至[联网检索问答]技能。"
+
+    return None, ""
+
+
 def _build_agent_messages(question: str, history: Sequence[dict] | None = None) -> list[dict]:
     history_messages = _sanitize_history_messages(history)
     return history_messages + [{"role": "user", "content": question}]
@@ -292,6 +350,7 @@ class AgentState(TypedDict):
     thought_process: List[dict]        # Full visual thought chain
     step_type: str                   # Current step type
     is_final: bool                   # Is workflow complete
+    web_search_enabled: bool          # Whether current turn may use web search
 
 
 # ==================== LLM Call Wrapper ====================
@@ -320,10 +379,10 @@ def step1_select_skill(state: AgentState) -> AgentState:
     """
     Step 1: LLM Dynamic Router to choose appropriate Skill
     """
-    global _ACTIVE_CALLBACK
     messages = list(state["messages"])
     user_question = _current_user_question(messages)
     history_messages = _history_before_current_user(messages)
+    web_search_enabled = bool(state.get("web_search_enabled", False))
     contextual_skill, contextual_reason = _route_contextual_followup(user_question, history_messages)
 
     # Load dynamic registered skills
@@ -380,7 +439,28 @@ def step1_select_skill(state: AgentState) -> AgentState:
 
     try:
         config = get_config()
-        if contextual_skill:
+        forced_skill, forced_reason = _route_by_web_toggle(user_question, history_messages, web_search_enabled)
+        if forced_skill == "__web_disabled__":
+            final_answer = "当前问题需要联网检索。请先开启联网搜索开关后再发送，我会结合公开资料进行回答。"
+            thought_entry = {
+                "step": 1,
+                "step_type": "select_skill",
+                "decision": "联网搜索开关关闭，已拦截联网检索请求",
+                "reason": forced_reason,
+                "llm_output": "[WEB_SEARCH_DISABLED]",
+            }
+            _emit_callback(thought_entry)
+            return {
+                **state,
+                "messages": messages + [{"role": "assistant", "content": final_answer}],
+                "selected_skill": None,
+                "thought_process": state["thought_process"] + [thought_entry],
+                "step_type": "select_skill",
+                "is_final": True,
+            }
+        if forced_skill:
+            content = f"[SKILL]{forced_skill}[/SKILL]\n[REASON]{forced_reason}[/REASON]"
+        elif contextual_skill and _skill_allowed_by_web_toggle(contextual_skill, web_search_enabled):
             content = f"[SKILL]{contextual_skill}[/SKILL]\n[REASON]{contextual_reason}[/REASON]"
         elif config.mock_enabled or not config.model.api_key:
             return mock_select_skill(state)
@@ -412,6 +492,25 @@ def step1_select_skill(state: AgentState) -> AgentState:
         if not matched:
             selected_skill = None
 
+    if selected_skill and not _skill_allowed_by_web_toggle(selected_skill, web_search_enabled):
+        final_answer = "当前问题需要联网检索。请先开启联网搜索开关后再发送，我会结合公开资料进行回答。"
+        thought_entry = {
+            "step": 1,
+            "step_type": "select_skill",
+            "decision": "联网搜索开关关闭，已拦截联网类技能",
+            "reason": f"路由器选择了 {selected_skill}，但本轮联网搜索开关关闭。",
+            "llm_output": content,
+        }
+        _emit_callback(thought_entry)
+        return {
+            **state,
+            "messages": messages + [{"role": "assistant", "content": final_answer}],
+            "selected_skill": None,
+            "thought_process": state["thought_process"] + [thought_entry],
+            "step_type": "select_skill",
+            "is_final": True,
+        }
+
     # Record first thought step
     thought_entry = {
         "step": 1,
@@ -422,11 +521,7 @@ def step1_select_skill(state: AgentState) -> AgentState:
     }
 
     # Trigger streaming callback
-    if _ACTIVE_CALLBACK:
-        try:
-            _ACTIVE_CALLBACK(thought_entry)
-        except Exception:
-            pass
+    _emit_callback(thought_entry)
 
     return {
         **state,
@@ -443,7 +538,6 @@ def step2_run_workflow(state: AgentState) -> AgentState:
     Step 2: Generic standard Workflow Engine node.
     Performs step-by-step SOP execution with context piping and outputs the thought chain.
     """
-    global _ACTIVE_CALLBACK
     skill_name = state.get("selected_skill")
     messages = list(state["messages"])
     user_question = _current_user_question(messages)
@@ -532,11 +626,7 @@ def step2_run_workflow(state: AgentState) -> AgentState:
             thought_process.append(error_thought)
 
             # Trigger streaming callback
-            if _ACTIVE_CALLBACK:
-                try:
-                    _ACTIVE_CALLBACK(error_thought)
-                except Exception:
-                    pass
+            _emit_callback(error_thought)
             return {
                 **state,
                 "messages": messages + [{"role": "assistant", "content": final_answer}],
@@ -620,11 +710,7 @@ def step2_run_workflow(state: AgentState) -> AgentState:
     thought_process.append(final_thought)
 
     # Trigger streaming callback
-    if _ACTIVE_CALLBACK:
-        try:
-            _ACTIVE_CALLBACK(final_thought)
-        except Exception:
-            pass
+    _emit_callback(final_thought)
 
     return {
         **state,
@@ -642,12 +728,13 @@ def step2_run_workflow(state: AgentState) -> AgentState:
 
 def mock_select_skill(state: AgentState) -> AgentState:
     """Mock Router fallback in case API key is missing"""
-    global _ACTIVE_CALLBACK
     messages = list(state["messages"])
     user_question = _current_user_question(messages)
     history_messages = _history_before_current_user(messages)
     recent_history_text = _recent_history_text(history_messages)
     contextual_skill, contextual_reason = _route_contextual_followup(user_question, history_messages)
+    web_search_enabled = bool(state.get("web_search_enabled", False))
+    forced_skill, forced_reason = _route_by_web_toggle(user_question, history_messages, web_search_enabled)
 
     selected_skill = "chat"
     reason = "未检测到 API Key，触发本地意图分析规则系统。"
@@ -675,19 +762,40 @@ def mock_select_skill(state: AgentState) -> AgentState:
     recent_has_data_context = any(k in recent_history_text for k in data_keywords + ["内部真实数据", "内部数据查询", "SQL", "数据查询结果"])
     recent_has_web_context = any(k in recent_history_text for k in web_keywords + ["联网检索", "外部公开资料", "竞品", "公开资料"])
 
-    if contextual_skill:
+    if forced_skill == "__web_disabled__":
+        final_answer = "当前问题需要联网检索。请先开启联网搜索开关后再发送，我会结合公开资料进行回答。"
+        thought_entry = {
+            "step": 1,
+            "step_type": "select_skill",
+            "decision": "联网搜索开关关闭，已拦截联网检索请求",
+            "reason": forced_reason,
+            "llm_output": "[WEB_SEARCH_DISABLED]",
+        }
+        _emit_callback(thought_entry)
+        return {
+            **state,
+            "messages": messages + [{"role": "assistant", "content": final_answer}],
+            "selected_skill": None,
+            "thought_process": state["thought_process"] + [thought_entry],
+            "step_type": "select_skill",
+            "is_final": True,
+        }
+    if forced_skill:
+        selected_skill = forced_skill
+        reason += f" {forced_reason}"
+    elif contextual_skill and _skill_allowed_by_web_toggle(contextual_skill, web_search_enabled):
         selected_skill = contextual_skill
         reason += f" {contextual_reason}"
-    elif (has_web_intent or has_external_market_intent) and has_data_intent and has_internal_subject:
+    elif web_search_enabled and (has_web_intent or has_external_market_intent) and has_data_intent and has_internal_subject:
         selected_skill = "data_web_compare_analysis"
         reason += " 检测到内部主体/业务指标与全球或公开市场表现的复合诉求，需要内部数据和联网公开资料共同支撑，路由至[内部数据与联网竞品对比分析]技能。"
-    elif has_web_intent and has_context_compare_intent:
+    elif web_search_enabled and has_web_intent and has_context_compare_intent:
         selected_skill = "web_compare_analysis"
         reason += " 检测到联网信息和上文/真实数据对比分析诉求，路由至[联网对比分析]技能。"
-    elif has_web_intent:
+    elif web_search_enabled and has_web_intent:
         selected_skill = "web_search_answer"
         reason += " 检测到明确联网检索诉求，路由至[联网检索问答]技能。"
-    elif has_followup_intent and recent_has_data_context and recent_has_web_context:
+    elif web_search_enabled and has_followup_intent and recent_has_data_context and recent_has_web_context:
         selected_skill = "web_compare_analysis"
         reason += " 检测到当前问题是对上一轮内外部对比分析的追问，继承会话上下文并路由至[联网对比分析]技能。"
     elif has_followup_intent and recent_has_data_context:
@@ -713,11 +821,7 @@ def mock_select_skill(state: AgentState) -> AgentState:
     }
 
     # Trigger streaming callback
-    if _ACTIVE_CALLBACK:
-        try:
-            _ACTIVE_CALLBACK(thought_entry)
-        except Exception:
-            pass
+    _emit_callback(thought_entry)
 
     return {
         **state,
@@ -772,11 +876,11 @@ except ImportError as e:
 
 # ==================== Executable Run Agent Function ====================
 
-def run_agent(question: str, callback=None, history: Sequence[dict] | None = None):
+def run_agent(question: str, callback=None, history: Sequence[dict] | None = None, web_search_enabled: bool = False):
     """Main execution engine method with optional step-by-step callback"""
-    global _ACTIVE_CALLBACK
-    _ACTIVE_CALLBACK = callback
+    callback_token = _ACTIVE_CALLBACK.set(callback)
     if graph is None:
+        _ACTIVE_CALLBACK.reset(callback_token)
         return {"error": "LangGraph is not configured correctly."}
 
     initial_state = AgentState(
@@ -788,6 +892,7 @@ def run_agent(question: str, callback=None, history: Sequence[dict] | None = Non
         thought_process=[],
         step_type="start",
         is_final=False,
+        web_search_enabled=web_search_enabled,
     )
 
     final_state = None
@@ -798,6 +903,8 @@ def run_agent(question: str, callback=None, history: Sequence[dict] | None = Non
                     final_state = node_state
     except Exception as e:
         return {"error": f"Engine execution failed: {str(e)}"}
+    finally:
+        _ACTIVE_CALLBACK.reset(callback_token)
 
     return final_state or {"error": "Execution did not return a valid state."}
 

@@ -39,17 +39,42 @@ def test_mock_chat_workflow_routes_to_chat_skill(monkeypatch):
     assert "保养" in result["messages"][-1]["content"]
 
 
-def test_mock_explicit_web_search_routes_to_web_search_answer(monkeypatch):
+def test_mock_explicit_web_search_routes_to_web_search_answer_when_enabled(monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")
 
-    result = run_agent("帮我网上搜一下最近中东汽车销量趋势")
+    result = run_agent("帮我网上搜一下最近中东汽车销量趋势", web_search_enabled=True)
 
     assert "error" not in result
     assert result["selected_skill"] == "web_search_answer"
     assert result["is_final"] is True
     assert any(step.get("decision", "").endswith("原子工具 [web_search]") for step in result["thought_process"])
     assert "联网检索" in result["messages"][-1]["content"]
+
+
+def test_mock_explicit_web_search_prompts_for_toggle_when_disabled(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    result = run_agent("帮我网上搜一下最近中东汽车销量趋势", web_search_enabled=False)
+
+    assert "error" not in result
+    assert result["selected_skill"] is None
+    assert result["is_final"] is True
+    assert "开启联网搜索" in result["messages"][-1]["content"]
+    assert not any(step.get("decision", "").endswith("原子工具 [web_search]") for step in result["thought_process"])
+
+
+def test_mock_internal_data_routes_to_data_web_compare_when_web_enabled(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    result = run_agent("2024年中东公司终端量是多少？", web_search_enabled=True)
+
+    assert "error" not in result
+    assert result["selected_skill"] == "data_web_compare_analysis"
+    assert any(step.get("decision", "").endswith("原子工具 [sql_executor]") for step in result["thought_process"])
+    assert any(step.get("decision", "").endswith("原子工具 [web_search]") for step in result["thought_process"])
 
 
 def test_mock_web_compare_uses_history_and_web_search(monkeypatch):
@@ -61,7 +86,7 @@ def test_mock_web_compare_uses_history_and_web_search(monkeypatch):
         {"role": "assistant", "content": "中东公司终端量 2311，批发量 2160。"},
     ]
 
-    result = run_agent("和网上公开的行业情况对比一下，分析为什么会这样", history=history)
+    result = run_agent("和网上公开的行业情况对比一下，分析为什么会这样", history=history, web_search_enabled=True)
 
     assert "error" not in result
     assert result["selected_skill"] == "web_compare_analysis"
@@ -81,7 +106,7 @@ def test_mock_data_and_web_request_routes_to_data_web_compare(monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")
 
-    result = run_agent("国际24年的销量情况，并在网上搜索一下竞品的销量情况")
+    result = run_agent("国际24年的销量情况，并在网上搜索一下竞品的销量情况", web_search_enabled=True)
 
     assert "error" not in result
     assert result["selected_skill"] == "data_web_compare_analysis"
@@ -107,7 +132,7 @@ def test_mock_external_data_compare_routes_to_data_web_compare(monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")
 
-    result = run_agent("国际24年的销量，并对比外部数据进行深度分析")
+    result = run_agent("国际24年的销量，并对比外部数据进行深度分析", web_search_enabled=True)
 
     assert "error" not in result
     assert result["selected_skill"] == "data_web_compare_analysis"
@@ -133,7 +158,7 @@ def test_mock_global_market_performance_routes_to_data_web_compare(monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")
 
-    result = run_agent("那我想知道广汽国际24年在全球国际市场卖的怎么样了？")
+    result = run_agent("那我想知道广汽国际24年在全球国际市场卖的怎么样了？", web_search_enabled=True)
 
     assert "error" not in result
     assert result["selected_skill"] == "data_web_compare_analysis"
@@ -148,7 +173,7 @@ def test_mock_business_international_alias_used_for_data_and_web(monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")
 
-    result = run_agent("国际24年的销量，并对比外部数据进行深度分析")
+    result = run_agent("国际24年的销量，并对比外部数据进行深度分析", web_search_enabled=True)
 
     extraction_steps = [
         step for step in result["thought_process"]
@@ -177,7 +202,7 @@ def test_mock_followup_after_data_web_compare_keeps_analysis_context(monkeypatch
         },
     ]
 
-    result = run_agent("为什么会这样？继续展开原因", history=history)
+    result = run_agent("为什么会这样？继续展开原因", history=history, web_search_enabled=True)
 
     assert result["selected_skill"] == "web_compare_analysis"
     assert any(step.get("decision", "").endswith("原子工具 [web_search]") for step in result["thought_process"])
@@ -196,7 +221,7 @@ def test_mock_competitor_followup_reuses_prior_data_without_sql(monkeypatch):
         },
     ]
 
-    result = run_agent("和其他竞品对比呢", history=history)
+    result = run_agent("和其他竞品对比呢", history=history, web_search_enabled=True)
 
     assert result["selected_skill"] == "web_compare_analysis"
     assert any(step.get("decision", "").endswith("原子工具 [web_search]") for step in result["thought_process"])
