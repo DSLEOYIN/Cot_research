@@ -70,13 +70,19 @@ def test_chat_stream_emits_callback_steps_before_answer(tmp_path, monkeypatch):
         body = "\n".join(response.iter_lines())
 
     assert response.status_code == 200
-    assert body.index("event: message_created") < body.index("event: step_completed")
+    assert body.index("event: message_created") < body.index("event: step_started")
+    assert body.index("event: step_started") < body.index("event: step_completed")
     assert body.count("event: step_completed") == 2
-    assert body.index("event: step_completed") < body.index("event: answer_completed")
+    assert body.index("event: step_completed") < body.index("event: result_ready")
+    assert body.index("event: result_ready") < body.index("event: answer_delta")
+    assert body.index("event: answer_delta") < body.index("event: answer_completed")
+    assert '"delta": "流式回答"' in body
+    assert '"duration_ms":' in body
 
     detail = client.get(f"/api/sessions/{session['id']}").json()
     assert detail["messages"][-1]["content"] == "流式回答"
     assert len(detail["messages"][-1]["steps"]) == 2
+    assert all(step["duration_ms"] is not None for step in detail["messages"][-1]["steps"])
 
 
 def test_first_question_auto_names_default_session_and_keeps_title_on_followup(tmp_path, monkeypatch):

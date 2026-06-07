@@ -1,15 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChatStep } from '../api/client';
 import { ThoughtStep } from './ThoughtStep';
 
 type Props = {
   steps: ChatStep[];
+  collapseSignal?: boolean;
 };
 
-export function ThoughtProcess({ steps }: Props) {
+export function ThoughtProcess({ steps, collapseSignal = false }: Props) {
   const hasError = steps.some((step) => step.status === 'failed');
-  const [collapsed, setCollapsed] = useState(!hasError);
+  const [collapsed, setCollapsed] = useState(false);
   const completed = steps.filter((step) => step.status !== 'running').length;
+
+  useEffect(() => {
+    if (collapseSignal && !hasError) setCollapsed(true);
+  }, [collapseSignal, hasError]);
 
   return (
     <section className={`workflow-process ${collapsed ? 'collapsed' : ''}`}>

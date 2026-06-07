@@ -454,14 +454,67 @@ button {
   box-shadow: 0 10px 22px rgba(15, 15, 15, 0.2);
 }
 
+.message.user .result-renderer p,
+.message.user .result-renderer strong,
+.message.user .result-renderer li {
+  color: #ffffff;
+}
+
 .msg-time {
-  margin-top: 5px;
   color: #8e99a4;
   font-size: 10px;
 }
 
-.message.user .msg-time {
-  text-align: right;
+.message-meta {
+  min-height: 25px;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message.user .message-meta {
+  justify-content: flex-end;
+}
+
+.message-copy-button {
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #98a2b3;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.message:hover .message-copy-button,
+.message-copy-button:focus-visible {
+  opacity: 1;
+}
+
+.message-copy-button:hover {
+  background: #f2f4f7;
+  color: #344054;
+}
+
+.message-copy-button svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+@media (hover: none) {
+  .message-copy-button {
+    opacity: 1;
+  }
 }
 
 .msg-mode-badge {
@@ -558,9 +611,11 @@ button {
 }
 
 .workflow-step.loading .workflow-step-main {
-  background: #ffffff;
+  background: linear-gradient(90deg, #ffffff 0%, #f7f9fc 50%, #ffffff 100%);
+  background-size: 220% 100%;
   color: #18202f;
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
+  animation: workflowLoadingSurface 1.8s ease-in-out infinite;
 }
 
 .workflow-step-icon {
@@ -583,12 +638,11 @@ button {
 
 .workflow-step.loading .workflow-step-icon::before {
   content: "";
-  width: 8px;
-  height: 8px;
-  border: 2px solid #111111;
-  border-right-color: transparent;
+  width: 6px;
+  height: 6px;
+  background: #111111;
   border-radius: 50%;
-  animation: workflowSpin 0.7s linear infinite;
+  animation: workflowPulse 1.2s ease-in-out infinite;
 }
 
 .workflow-step.done .workflow-step-icon {
@@ -611,9 +665,15 @@ button {
   content: "!";
 }
 
-.workflow-step-name {
+.workflow-step-copy {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.workflow-step-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -621,8 +681,17 @@ button {
   font-weight: 600;
 }
 
+.workflow-step-description {
+  overflow: hidden;
+  color: #98a2b3;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workflow-step-status {
-  min-width: 46px;
+  min-width: 54px;
   text-align: right;
   color: #8f97a5;
   font-size: 11px;
@@ -630,8 +699,25 @@ button {
 }
 
 .workflow-step.loading .workflow-step-status {
-  color: #f59e0b;
+  color: #667085;
 }
+
+.workflow-running-pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.workflow-running-pulse i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #98a2b3;
+  animation: workflowPulse 1.2s ease-in-out infinite;
+}
+
+.workflow-running-pulse i:nth-child(2) { animation-delay: 0.16s; }
+.workflow-running-pulse i:nth-child(3) { animation-delay: 0.32s; }
 
 .workflow-step.failed .workflow-step-status {
   color: #d63b32;
@@ -671,24 +757,92 @@ button {
   to { transform: rotate(360deg); }
 }
 
+@keyframes workflowPulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.78); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes workflowLoadingSurface {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 .result-renderer h3 {
-  margin: 12px 0 8px;
+  margin: 18px 0 8px;
   color: #18202f;
-  font-size: 14px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.result-renderer h2 {
+  margin: 20px 0 10px;
+  color: #111827;
+  font-size: 18px;
+  line-height: 1.4;
 }
 
 .result-renderer p {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
+  color: #344054;
+  font-size: 14px;
+  line-height: 1.7;
   white-space: pre-wrap;
 }
 
-.result-renderer blockquote {
-  margin: 8px 0;
-  padding: 8px 10px;
-  border-left: 3px solid #ffd4d1;
-  border-radius: 8px;
-  background: #fff7f6;
+.result-renderer strong {
+  color: #111827;
+  font-weight: 750;
+}
+
+.result-renderer ol,
+.result-renderer ul {
+  margin: 4px 0 12px;
+  padding-left: 22px;
+  color: #344054;
+}
+
+.result-renderer li {
+  margin: 0 0 8px;
+  padding-left: 4px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.result-renderer li::marker {
   color: #667085;
+  font-weight: 700;
+}
+
+.result-renderer blockquote {
+  margin: 14px 0 18px;
+  padding: 12px 14px;
+  border-left: 3px solid #111827;
+  border-radius: 0 10px 10px 0;
+  background: #f8fafc;
+  color: #475467;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.typewriter-result {
+  position: relative;
+}
+
+.typewriter-result.streaming-reveal::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 26px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.66));
+  animation: streamRevealBreathe 1.5s ease-in-out infinite;
+}
+
+@keyframes streamRevealBreathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
 }
 
 .data-table-wrap {
@@ -698,6 +852,33 @@ button {
   border: 1px solid #e7ebf1;
   border-radius: 12px;
   background: #ffffff;
+}
+
+.data-table-toolbar {
+  position: sticky;
+  left: 0;
+  min-width: 100%;
+  padding: 7px 8px;
+  border-bottom: 1px solid #edf1f7;
+  background: #ffffff;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.data-table-copy {
+  padding: 5px 9px;
+  border: 1px solid #e1e6ee;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #667085;
+  font-size: 10px;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.data-table-copy:hover {
+  border-color: #cfd5df;
+  background: #f8fafc;
+  color: #18202f;
 }
 
 .data-table {

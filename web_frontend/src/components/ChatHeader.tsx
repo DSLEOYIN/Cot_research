@@ -30,9 +30,9 @@ export function ChatHeader({ session, historyCollapsed, onToggleHistory, onNew }
             <path d="M3 6h18M3 12h18M3 18h18M8 6v12" />
           </svg>
         </button>
+        <button className="ghost-button" type="button" onClick={onNew} title="新建对话">＋</button>
         <span className="online-dot" />
         <span className="online-text">在线</span>
-        <button className="ghost-button" type="button" onClick={onNew} title="新建对话">＋</button>
       </div>
     </header>
   );

@@ -84,7 +84,13 @@ def _save_steps(repo: ChatRepository, assistant_message_id: str, thoughts: list[
     return saved
 
 
-def _save_step(repo: ChatRepository, assistant_message_id: str, index: int, thought: dict[str, Any]) -> dict[str, Any]:
+def _save_step(
+    repo: ChatRepository,
+    assistant_message_id: str,
+    index: int,
+    thought: dict[str, Any],
+    duration_ms: int | None = None,
+) -> dict[str, Any]:
     return repo.add_step(
         assistant_message_id,
         step_index=index,
@@ -97,11 +103,38 @@ def _save_step(repo: ChatRepository, assistant_message_id: str, index: int, thou
         mcp_output=thought.get("mcp_output"),
         llm_output=thought.get("llm_output") or thought.get("final_answer") or "",
         error=thought.get("error"),
+        duration_ms=duration_ms,
     )
 
 
 def _sse(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _split_answer_for_streaming(content: str) -> tuple[str, str]:
+    analysis_markers = ("### 💡", "### 业务分析", "### 分析", "### 建议")
+    positions = [content.find(marker) for marker in analysis_markers if content.find(marker) >= 0]
+    if not positions:
+        return "", content
+    split_at = min(positions)
+    return content[:split_at].rstrip(), content[split_at:].lstrip()
+
+
+def _answer_chunks(content: str, chunk_size: int = 18) -> list[str]:
+    return [content[index:index + chunk_size] for index in range(0, len(content), chunk_size)]
+
+
+def _running_step(index: int) -> dict[str, Any]:
+    return {
+        "id": f"running-{index}",
+        "message_id": "running",
+        "step_index": index,
+        "step_type": "running",
+        "title": "正在执行下一节点",
+        "status": "running",
+        "summary": "Skill 与 MCP 链路正在运行",
+        "created_at": "",
+    }
 
 
 def _title_from_first_question(message: str) -> str:
@@ -244,6 +277,7 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
                 trace_open=True,
             )
             yield _sse("message_created", user_message)
+            yield _sse("step_started", _running_step(1))
 
             loop = asyncio.get_running_loop()
             queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
@@ -267,13 +301,17 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
             worker = asyncio.create_task(run_worker())
             saved_steps: list[dict[str, Any]] = []
             result: dict[str, Any] = {}
+            step_started_at = loop.time()
 
             while True:
                 event, data = await queue.get()
                 if event == "step_completed":
-                    step = _save_step(repo, assistant_message["id"], len(saved_steps) + 1, data)
+                    duration_ms = max(1, round((loop.time() - step_started_at) * 1000))
+                    step = _save_step(repo, assistant_message["id"], len(saved_steps) + 1, data, duration_ms)
                     saved_steps.append(step)
                     yield _sse(event, step)
+                    yield _sse("step_started", _running_step(len(saved_steps) + 1))
+                    step_started_at = loop.time()
                     continue
                 result = data
                 break
@@ -297,6 +335,11 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
                 last_mode=result.get("selected_skill"),
                 last_web_search_enabled=payload.web_search_enabled,
             )
+            result_content, analysis_content = _split_answer_for_streaming(assistant_content)
+            yield _sse("result_ready", {"content": result_content})
+            for delta in _answer_chunks(analysis_content):
+                yield _sse("answer_delta", {"delta": delta})
+                await asyncio.sleep(0.018)
             yield _sse("answer_completed", assistant_message)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")

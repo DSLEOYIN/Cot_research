@@ -36,6 +36,15 @@ function App() {
     }
   }
 
+  async function refreshSessionList(nextActiveId?: string) {
+    const nextSessions = await api.listSessions();
+    setSessions(nextSessions);
+    const target = nextSessions.find((item) => item.id === (nextActiveId || activeId));
+    if (target) {
+      setActiveSession((current) => current?.id === target.id ? { ...current, ...target } : current);
+    }
+  }
+
   async function createSession() {
     const session = await api.createSession('新对话');
     await refreshSessions(session.id);
@@ -76,12 +85,16 @@ function App() {
       id: `temp-assistant-${Date.now()}`,
       session_id: activeSession.id,
       role: 'assistant',
-      content: '正在理解问题并调度执行链路...',
+      content: '',
       selected_skill: null,
       web_search_enabled: webSearchEnabled,
       trace_open: true,
       created_at: new Date().toISOString(),
-      steps: [{ id: 'running', message_id: 'running', step_index: 1, step_type: 'running', title: '运行中', status: 'running', summary: '正在执行 Skill 与 MCP 链路', created_at: new Date().toISOString() }],
+      steps: [],
+      stream_base: '',
+      stream_text: '',
+      answer_started: false,
+      is_streaming: true,
     };
     setMessages((items) => [...items, optimisticUser, optimisticAssistant]);
 
@@ -91,24 +104,65 @@ function App() {
           const userMessage = data as ChatMessage;
           setMessages((items) => items.map((item) => item.id === optimisticUser.id ? userMessage : item));
         }
+        if (event === 'step_started') {
+          const step = data as NonNullable<ChatMessage['steps']>[number];
+          setMessages((items) => items.map((item) => (
+            item.id === optimisticAssistant.id && !item.answer_started
+              ? { ...item, steps: [...(item.steps || []).filter((existing) => existing.status !== 'running'), step] }
+              : item
+          )));
+        }
         if (event === 'step_completed') {
           const step = data as NonNullable<ChatMessage['steps']>[number];
           setMessages((items) => items.map((item) => (
             item.id === optimisticAssistant.id
-              ? { ...item, steps: [...(item.steps || []).filter((existing) => existing.id !== 'running'), step] }
+              ? { ...item, steps: [...(item.steps || []).filter((existing) => existing.status !== 'running'), step] }
+              : item
+          )));
+        }
+        if (event === 'result_ready') {
+          const result = data as { content: string };
+          setMessages((items) => items.map((item) => (
+            item.id === optimisticAssistant.id
+              ? {
+                  ...item,
+                  content: result.content,
+                  stream_base: result.content,
+                  answer_started: true,
+                  steps: (item.steps || []).filter((existing) => existing.status !== 'running'),
+                }
+              : item
+          )));
+        }
+        if (event === 'answer_delta') {
+          const result = data as { delta: string };
+          setMessages((items) => items.map((item) => (
+            item.id === optimisticAssistant.id
+              ? { ...item, answer_started: true, stream_text: `${item.stream_text || ''}${result.delta}` }
               : item
           )));
         }
         if (event === 'answer_completed') {
           const assistantMessage = data as ChatMessage;
-          setMessages((items) => items.map((item) => item.id === optimisticAssistant.id ? assistantMessage : item));
+          setMessages((items) => items.map((item) => (
+            item.id === optimisticAssistant.id
+              ? {
+                  ...assistantMessage,
+                  id: item.id,
+                  stream_base: item.stream_base,
+                  stream_text: item.stream_text,
+                  answer_started: true,
+                  is_streaming: false,
+                }
+              : item
+          )));
         }
         if (event === 'error') {
           const streamError = data as { message: string };
           throw new Error(streamError.message);
         }
       });
-      await refreshSessions(activeSession.id);
+      await refreshSessionList(activeSession.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : '请求失败';
       setError(message);

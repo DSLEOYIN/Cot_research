@@ -25,6 +25,10 @@ export type ChatMessage = {
   trace_open: boolean;
   created_at: string;
   steps?: ChatStep[];
+  stream_base?: string;
+  stream_text?: string;
+  answer_started?: boolean;
+  is_streaming?: boolean;
 };
 
 export type ChatSession = {
@@ -39,7 +43,14 @@ export type ChatSession = {
   messages?: ChatMessage[];
 };
 
-export type ChatStreamEvent = 'message_created' | 'step_completed' | 'answer_completed' | 'error';
+export type ChatStreamEvent =
+  | 'message_created'
+  | 'step_started'
+  | 'step_completed'
+  | 'result_ready'
+  | 'answer_delta'
+  | 'answer_completed'
+  | 'error';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
@@ -75,7 +86,10 @@ export const api = {
     session_id: string,
     message: string,
     web_search_enabled: boolean,
-    onEvent: (event: ChatStreamEvent, data: ChatMessage | ChatStep | { message: string }) => void,
+    onEvent: (
+      event: ChatStreamEvent,
+      data: ChatMessage | ChatStep | { message: string } | { content: string } | { delta: string },
+    ) => void,
   ) => {
     const response = await fetch(`${API_BASE}/api/chat/stream`, {
       method: 'POST',
