@@ -126,6 +126,10 @@ def test_chat_stream_previews_sql_table_before_later_analysis_steps(tmp_path, mo
     assert "| GS8 | 18918 |" in body
 
 
+def test_streaming_answer_uses_slightly_slower_readable_pacing():
+    assert api_server.ANSWER_STREAM_DELAY_SECONDS == 0.024
+
+
 def test_first_question_auto_names_default_session_and_keeps_title_on_followup(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")

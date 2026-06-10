@@ -9,7 +9,7 @@ type Props = {
 
 export function ThoughtProcess({ steps, collapseSignal = false }: Props) {
   const hasError = steps.some((step) => step.status === 'failed');
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(collapseSignal && !hasError);
   const completed = steps.filter((step) => step.status !== 'running').length;
 
   useEffect(() => {

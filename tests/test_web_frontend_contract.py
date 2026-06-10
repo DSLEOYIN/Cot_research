@@ -56,7 +56,9 @@ def test_workflow_stays_open_until_answer_output_then_collapses():
     thought = read(SRC / "components" / "ThoughtProcess.tsx")
 
     assert "answerStarted" in bubble
+    assert "const shouldCollapseThoughts = answerStarted || !message.is_streaming;" in bubble
     assert "collapseSignal" in thought
+    assert "useState(collapseSignal && !hasError)" in thought
     assert "setCollapsed(true)" in thought
 
 
@@ -288,7 +290,8 @@ def test_data_table_renders_html_break_markers_as_real_line_breaks():
 def test_workflow_steps_use_compact_single_column_layout():
     css = read(SRC / "styles" / "app.css")
 
-    assert "width: min(100%, 620px);" in css
+    assert ".workflow-process {\n  width: 100%;" in css
+    assert "width: min(100%, 620px);" not in css
     assert "grid-template-columns: minmax(0, 1fr);" in css
     assert "repeat(2, minmax(0, 1fr))" not in css
     assert ".workflow-step.done .workflow-step-description" in css

@@ -12,6 +12,7 @@ export function MessageBubble({ message }: Props) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === 'user';
   const answerStarted = Boolean(message.answer_started);
+  const shouldCollapseThoughts = answerStarted || !message.is_streaming;
   const displayContent = message.content;
 
   async function copyMessage() {
@@ -39,7 +40,7 @@ export function MessageBubble({ message }: Props) {
       <div>
         <div className={`msg-content ${!isUser && message.steps?.length ? 'workflow-content' : ''}`}>
           {!isUser && message.selected_skill && <div className="msg-mode-badge thinking">{skillDisplayName(message.selected_skill)}</div>}
-          {!isUser && message.steps?.length ? <ThoughtProcess steps={message.steps} collapseSignal={answerStarted} /> : null}
+          {!isUser && message.steps?.length ? <ThoughtProcess steps={message.steps} collapseSignal={shouldCollapseThoughts} /> : null}
           <ResultRenderer content={displayContent} />
         </div>
         <div className="message-meta">

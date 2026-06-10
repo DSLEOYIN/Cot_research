@@ -18,6 +18,7 @@ from langgraph_cot import run_agent
 DEFAULT_SESSION_TITLES = {"新对话", "新聊天"}
 SESSION_TITLE_MAX_LENGTH = 20
 SESSION_SUMMARY_MAX_LENGTH = 48
+ANSWER_STREAM_DELAY_SECONDS = 0.024
 
 
 class SessionCreate(BaseModel):
@@ -361,7 +362,7 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
             yield _sse("result_ready", {"content": result_content})
             for delta in _answer_chunks(analysis_content):
                 yield _sse("answer_delta", {"delta": delta})
-                await asyncio.sleep(0.018)
+                await asyncio.sleep(ANSWER_STREAM_DELAY_SECONDS)
             yield _sse("answer_completed", assistant_message)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
