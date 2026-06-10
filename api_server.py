@@ -124,6 +124,23 @@ def _answer_chunks(content: str, chunk_size: int = 18) -> list[str]:
     return [content[index:index + chunk_size] for index in range(0, len(content), chunk_size)]
 
 
+def _preview_content_from_thought(thought: dict[str, Any]) -> str:
+    decision = thought.get("decision") or ""
+    if not decision.endswith("原子工具 [sql_executor]"):
+        return ""
+    output = thought.get("mcp_output")
+    if isinstance(output, str):
+        try:
+            output = json.loads(output)
+        except json.JSONDecodeError:
+            pass
+    if isinstance(output, dict):
+        output = output.get("text") or output.get("data") or output.get("result") or ""
+    if not isinstance(output, str) or "|" not in output:
+        return ""
+    return f"### 📊 内部数据查询结果\n{output.strip()}"
+
+
 def _running_step(index: int) -> dict[str, Any]:
     return {
         "id": f"running-{index}",
@@ -302,6 +319,7 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
             saved_steps: list[dict[str, Any]] = []
             result: dict[str, Any] = {}
             step_started_at = loop.time()
+            last_preview_content = ""
 
             while True:
                 event, data = await queue.get()
@@ -310,6 +328,10 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
                     step = _save_step(repo, assistant_message["id"], len(saved_steps) + 1, data, duration_ms)
                     saved_steps.append(step)
                     yield _sse(event, step)
+                    preview_content = _preview_content_from_thought(data)
+                    if preview_content and preview_content != last_preview_content:
+                        last_preview_content = preview_content
+                        yield _sse("preview_ready", {"content": preview_content})
                     yield _sse("step_started", _running_step(len(saved_steps) + 1))
                     step_started_at = loop.time()
                     continue

@@ -289,6 +289,12 @@ def _try_correct_sql(step_num: int, step_name: str, step_item: dict, resolved_ar
     if step_item.get("mcp") != "sql_executor":
         return None
 
+    try:
+        import theme_loader
+        table_info = theme_loader.get_active_theme_table_info()
+    except Exception:
+        table_info = ""
+
     wrong_sql = resolved_args.get("query", "")
     correction_args = {
         "prompt": context["input"]["query"],
@@ -298,6 +304,7 @@ def _try_correct_sql(step_num: int, step_name: str, step_item: dict, resolved_ar
             "wrong_sql": wrong_sql,
             "error_message": result_data.get("error") or "",
             "error_type": result_data.get("error_type") or "",
+            "table_info": table_info,
         }
     }
 

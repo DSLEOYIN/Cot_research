@@ -352,4 +352,6 @@ def test_workflow_retries_sql_execution_once_after_correction(monkeypatch):
     ]
     assert len(correction_calls) == 1
     assert "Unknown column" in correction_calls[0]["template_vars"]["error_message"]
+    assert "CREATE TABLE `v_dm_sal_scheduling_dly`" in correction_calls[0]["template_vars"]["table_info"]
+    assert "`product_qty`" in correction_calls[0]["template_vars"]["table_info"]
     assert any(step.get("step_type") == "sql_correction" for step in result["thought_process"])

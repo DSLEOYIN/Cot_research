@@ -3,7 +3,6 @@ import { ChatMessage } from '../api/client';
 import { skillDisplayName } from '../skillLabels';
 import { ResultRenderer } from './ResultRenderer';
 import { ThoughtProcess } from './ThoughtProcess';
-import { TypewriterResult } from './TypewriterResult';
 
 type Props = {
   message: ChatMessage;
@@ -13,8 +12,7 @@ export function MessageBubble({ message }: Props) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === 'user';
   const answerStarted = Boolean(message.answer_started);
-  const streamBase = message.stream_base ?? message.content;
-  const streamText = message.stream_text ?? '';
+  const displayContent = message.content;
 
   async function copyMessage() {
     try {
@@ -42,14 +40,7 @@ export function MessageBubble({ message }: Props) {
         <div className={`msg-content ${!isUser && message.steps?.length ? 'workflow-content' : ''}`}>
           {!isUser && message.selected_skill && <div className="msg-mode-badge thinking">{skillDisplayName(message.selected_skill)}</div>}
           {!isUser && message.steps?.length ? <ThoughtProcess steps={message.steps} collapseSignal={answerStarted} /> : null}
-          {!isUser && answerStarted ? (
-            <>
-              {streamBase && <ResultRenderer content={streamBase} />}
-              <TypewriterResult content={streamText} active={answerStarted} />
-            </>
-          ) : (
-            <ResultRenderer content={message.content} />
-          )}
+          <ResultRenderer content={displayContent} />
         </div>
         <div className="message-meta">
           <button className="message-copy-button" type="button" onClick={copyMessage} aria-label="复制消息" title="复制消息">

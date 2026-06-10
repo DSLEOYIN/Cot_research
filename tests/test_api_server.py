@@ -85,6 +85,47 @@ def test_chat_stream_emits_callback_steps_before_answer(tmp_path, monkeypatch):
     assert all(step["duration_ms"] is not None for step in detail["messages"][-1]["steps"])
 
 
+def test_chat_stream_previews_sql_table_before_later_analysis_steps(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+
+    def fake_run_agent(question, callback=None, history=None, web_search_enabled=False):
+        assert callback is not None
+        callback({
+            "step_type": "execute_mcp",
+            "decision": "SOP 步骤 1 [sql_execution]：调用原子工具 [sql_executor]",
+            "mcp_output": '{"success": true, "data": "| 车型 | 销量 |\\n| --- | --- |\\n| GS8 | 18918 |"}',
+        })
+        callback({
+            "step_type": "execute_mcp",
+            "decision": "SOP 步骤 2 [web_search]：调用原子工具 [web_search]",
+            "mcp_output": '{"success": true, "data": "公开资料"}',
+        })
+        return {
+            "selected_skill": "data_web_compare_analysis",
+            "messages": [{"role": "assistant", "content": "最终分析"}],
+            "thought_process": [],
+        }
+
+    monkeypatch.setattr(api_server, "run_agent", fake_run_agent)
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+    session = client.post("/api/sessions", json={"title": "流式预览"}).json()
+
+    with client.stream(
+        "POST",
+        "/api/chat/stream",
+        json={"session_id": session["id"], "message": "查询并分析", "web_search_enabled": True},
+    ) as response:
+        body = "\n".join(response.iter_lines())
+
+    preview_at = body.index("event: preview_ready")
+    web_step_at = body.index('"mcp_output": "{\\"success\\": true, \\"data\\": \\"公开资料\\"}"')
+    assert preview_at < web_step_at
+    assert "### 📊 内部数据查询结果" in body
+    assert "| GS8 | 18918 |" in body
+
+
 def test_first_question_auto_names_default_session_and_keeps_title_on_followup(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")

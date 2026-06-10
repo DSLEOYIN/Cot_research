@@ -3,6 +3,7 @@ import json
 from mcps.llm_mcp import llm
 from mcps.n2sql_mcp import n2sql
 from skills import get_skill
+from theme_loader import get_active_theme_table_info
 
 
 class FakeResponse:
@@ -74,3 +75,11 @@ def test_n2sql_combines_active_theme_ddl_with_retrieval_context(monkeypatch):
     assert "CREATE TABLE `v_dm_sal_wolesale_terminal_dly`" in sent_prompt
     assert "补充上下文" in sent_prompt
     assert "终端量字段定义" in sent_prompt
+
+
+def test_active_theme_uses_real_scheduling_table_columns():
+    table_info = get_active_theme_table_info()
+
+    assert "`product_qty`" in table_info
+    assert "`delivery_qty`" in table_info
+    assert "`scheduling_qty`" not in table_info

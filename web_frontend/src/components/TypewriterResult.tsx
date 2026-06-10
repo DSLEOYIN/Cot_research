@@ -66,9 +66,21 @@ export function TypewriterResult({ content, active }: Props) {
     };
   }, [active]);
 
+  const lastLineBreak = visible.lastIndexOf('\n');
+  const stableContent = lastLineBreak >= 0 ? visible.slice(0, lastLineBreak + 1) : '';
+  const pendingText = lastLineBreak >= 0 ? visible.slice(lastLineBreak + 1) : visible;
+  const pendingIsHeading = /^#{1,6}\s+/.test(pendingText);
+  const pendingDisplayText = pendingText
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^\s*([-*_])(?:\s*\1){2,}\s*$/, '')
+    .replace(/\*\*|__|`/g, '');
+
   return (
     <div className={`typewriter-result ${active ? 'active' : ''} ${isRevealing ? 'streaming-reveal' : ''}`}>
-      <ResultRenderer content={visible} />
+      {stableContent && <ResultRenderer content={stableContent} />}
+      {pendingDisplayText && (
+        <p className={`streaming-pending-text ${pendingIsHeading ? 'pending-heading' : ''}`}>{pendingDisplayText}</p>
+      )}
     </div>
   );
 }

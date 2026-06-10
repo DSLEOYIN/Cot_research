@@ -15,12 +15,25 @@ type Props = {
 
 export function EChartsPanel({ data }: Props) {
   const chartElement = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<echarts.ECharts | null>(null);
+  const dataKey = JSON.stringify(data);
 
   useEffect(() => {
     if (!chartElement.current) return;
 
     const chart = echarts.init(chartElement.current);
-    chart.setOption({
+    chartRef.current = chart;
+    const resizeObserver = new ResizeObserver(() => chart.resize());
+    resizeObserver.observe(chartElement.current);
+    return () => {
+      resizeObserver.disconnect();
+      chart.dispose();
+      chartRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    chartRef.current?.setOption({
       animationDuration: 500,
       color: ['#111111', '#d63b32', '#64748b', '#f59e0b'],
       grid: { left: 18, right: 18, top: 48, bottom: 24, containLabel: true },
@@ -47,14 +60,7 @@ export function EChartsPanel({ data }: Props) {
         symbolSize: 6,
       })),
     });
-
-    const resizeObserver = new ResizeObserver(() => chart.resize());
-    resizeObserver.observe(chartElement.current);
-    return () => {
-      resizeObserver.disconnect();
-      chart.dispose();
-    };
-  }, [data]);
+  }, [dataKey]);
 
   return (
     <section className="echarts-card" aria-label="数据趋势图">

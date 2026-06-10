@@ -1,8 +1,29 @@
-import { useState } from 'react';
+import { Fragment, ReactNode, useState } from 'react';
 
 type Props = {
   rows: string[][];
 };
+
+function stripInlineMarkdown(text: string) {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1');
+}
+
+function normalizeCellText(text: string) {
+  return stripInlineMarkdown(text).replace(/<br\s*\/?>/gi, '\n');
+}
+
+function renderCellContent(text: string): ReactNode[] {
+  const parts = text.split(/<br\s*\/?>/gi);
+  return parts.map((part, index) => (
+    <Fragment key={`${index}-${part}`}>
+      {stripInlineMarkdown(part)}
+      {index < parts.length - 1 && <br key={`break-${index}`} />}
+    </Fragment>
+  ));
+}
 
 export function DataTable({ rows }: Props) {
   const [copied, setCopied] = useState(false);
@@ -10,7 +31,7 @@ export function DataTable({ rows }: Props) {
 
   async function copyTable() {
     const tsv = rows
-      .map((row) => row.map((cell) => cell.replace(/[\t\r\n]+/g, ' ').trim()).join('\t'))
+      .map((row) => row.map((cell) => normalizeCellText(cell).replace(/[\t\r\n]+/g, ' ').trim()).join('\t'))
       .join('\n');
     try {
       await navigator.clipboard.writeText(tsv);
@@ -36,10 +57,10 @@ export function DataTable({ rows }: Props) {
         </button>
       </div>
       <table className="data-table">
-        <thead><tr>{rows[0].map((cell) => <th key={cell}>{cell}</th>)}</tr></thead>
+        <thead><tr>{rows[0].map((cell) => <th key={cell}>{renderCellContent(cell)}</th>)}</tr></thead>
         <tbody>
           {rows.slice(1).map((row, rowIndex) => (
-            <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`}>{cell}</td>)}</tr>
+            <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`}>{renderCellContent(cell)}</td>)}</tr>
           ))}
         </tbody>
       </table>

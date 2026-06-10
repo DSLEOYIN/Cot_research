@@ -48,7 +48,8 @@ def knowledge_retrieval(
         "字段标准查询名检索": [
             {"content": "终端量 (terminal_qty): 指实际销售给终端客户的数量，也就是零售量"},
             {"content": "批发量 (wholesale_qty): 主机厂销往经销商的车辆数量"},
-            {"content": "交付量 (delivery_qty): 工厂下线并交付 of 车辆数量"},
+            {"content": "交付量 (delivery_qty): 排产表中的车辆交付数量"},
+            {"content": "产量/排产量/下线量 (product_qty): 排产表中的车辆下线数量"},
             {"content": "库存量 (stock_qty): 经销商、子公司、厂端库存总和"},
             {"content": "订单量 (order_qty): 新增SC订单的数量"},
         ],

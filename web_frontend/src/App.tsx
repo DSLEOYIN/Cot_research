@@ -120,6 +120,18 @@ function App() {
               : item
           )));
         }
+        if (event === 'preview_ready') {
+          const preview = data as { content: string };
+          setMessages((items) => items.map((item) => (
+            item.id === optimisticAssistant.id
+              ? {
+                  ...item,
+                  content: preview.content,
+                  stream_base: preview.content,
+                }
+              : item
+          )));
+        }
         if (event === 'result_ready') {
           const result = data as { content: string };
           setMessages((items) => items.map((item) => (
@@ -138,7 +150,12 @@ function App() {
           const result = data as { delta: string };
           setMessages((items) => items.map((item) => (
             item.id === optimisticAssistant.id
-              ? { ...item, answer_started: true, stream_text: `${item.stream_text || ''}${result.delta}` }
+              ? {
+                  ...item,
+                  answer_started: true,
+                  content: `${item.content || ''}${result.delta}`,
+                  stream_text: `${item.stream_text || ''}${result.delta}`,
+                }
               : item
           )));
         }

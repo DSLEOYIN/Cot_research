@@ -1,19 +1,11 @@
 import { useState } from 'react';
 import { ChatStep } from '../api/client';
 import { stepDisplay } from '../stepLabels';
+import { StepDetail } from './StepDetail';
 
 type Props = {
   step: ChatStep;
 };
-
-function pretty(value?: string | null) {
-  if (!value) return '';
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
 
 function formatDuration(duration?: number | null) {
   if (duration == null) return '';
@@ -32,24 +24,21 @@ export function ThoughtStep({ step }: Props) {
       : formatDuration(step.duration_ms) || '完成';
 
   return (
-    <div className={`workflow-step ${stateClass}`}>
-      <button className="workflow-step-main" type="button" onClick={() => setOpen((value) => !value)}>
+    <div className={`workflow-step ${stateClass} ${open ? 'open' : ''}`}>
+      <button className="workflow-step-main" type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <span className="workflow-step-icon" />
         <span className="workflow-step-copy">
           <span className="workflow-step-name">{display.name}</span>
           <span className="workflow-step-description">{display.description}</span>
         </span>
-        {step.status === 'running' && <span className="workflow-running-pulse" aria-hidden="true"><i /><i /><i /></span>}
-        <span className="workflow-step-status">{statusText}</span>
+        <span className="workflow-step-actions">
+          {step.status === 'running' && <span className="workflow-running-pulse" aria-hidden="true"><i /><i /><i /></span>}
+          <span className="workflow-step-status">{statusText}</span>
+          <span className="workflow-step-chevron" aria-hidden="true" />
+        </span>
       </button>
       {open && (
-        <div className="workflow-step-detail">
-          {step.summary && <p>{step.summary}</p>}
-          {step.llm_output && <pre>{step.llm_output}</pre>}
-          {step.mcp_input && <pre>{pretty(step.mcp_input)}</pre>}
-          {step.mcp_output && <pre>{pretty(step.mcp_output)}</pre>}
-          {step.error && <pre className="error-text">{step.error}</pre>}
-        </div>
+        <StepDetail step={step} description={display.description} />
       )}
     </div>
   );

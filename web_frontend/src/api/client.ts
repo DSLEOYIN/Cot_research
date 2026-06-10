@@ -47,6 +47,7 @@ export type ChatStreamEvent =
   | 'message_created'
   | 'step_started'
   | 'step_completed'
+  | 'preview_ready'
   | 'result_ready'
   | 'answer_delta'
   | 'answer_completed'
