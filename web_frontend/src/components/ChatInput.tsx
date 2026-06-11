@@ -1,14 +1,19 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 
 type Props = {
   disabled: boolean;
   webSearchEnabled: boolean;
   onWebSearchChange: (enabled: boolean) => void;
   onSend: (text: string) => void;
+  initialText?: string;
 };
 
-export function ChatInput({ disabled, webSearchEnabled, onWebSearchChange, onSend }: Props) {
+export function ChatInput({ disabled, webSearchEnabled, onWebSearchChange, onSend, initialText = '' }: Props) {
   const [text, setText] = useState('');
+
+  useEffect(() => {
+    if (initialText) setText(initialText);
+  }, [initialText]);
 
   function submit(event: FormEvent) {
     event.preventDefault();

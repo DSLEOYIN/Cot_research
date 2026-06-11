@@ -27,7 +27,7 @@ streamlit run streamlit_langgraph.py
 
 ```powershell
 $env:APP_MODE = "mock"
-uvicorn api_server:app --host 127.0.0.1 --port 8000 --reload
+uvicorn api_server:app --host 127.0.0.1 --port 8001 --reload
 ```
 
 ```powershell

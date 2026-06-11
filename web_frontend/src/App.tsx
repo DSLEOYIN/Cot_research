@@ -6,6 +6,16 @@ import { DeleteDialog } from './components/DeleteDialog';
 import { HistoryPanel } from './components/HistoryPanel';
 import { MessageList } from './components/MessageList';
 import { RenameDialog } from './components/RenameDialog';
+import { AppShell } from './components/AppShell';
+import { initialMcps, initialSkills, McpDefinition, SkillDefinition } from './managementData';
+import { useWorkspaceRoute } from './useWorkspaceRoute';
+import { SkillsPage } from './pages/SkillsPage';
+import { SkillDetailPage } from './pages/SkillDetailPage';
+import { McpsPage } from './pages/McpsPage';
+import { McpDetailPage } from './pages/McpDetailPage';
+import { SkillCenterPage } from './pages/SkillCenterPage';
+import { SkillShowcasePage } from './pages/SkillShowcasePage';
+import { AdminNav } from './components/AdminNav';
 
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -17,7 +27,12 @@ function App() {
   const [error, setError] = useState('');
   const [renameTarget, setRenameTarget] = useState<ChatSession | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
+  const [skills, setSkills] = useState<SkillDefinition[]>(initialSkills);
+  const [mcps, setMcps] = useState<McpDefinition[]>(initialMcps);
+  const [managementNotice, setManagementNotice] = useState('');
+  const [skillTryText, setSkillTryText] = useState('');
   const bootstrapped = useRef(false);
+  const { path, navigate } = useWorkspaceRoute();
 
   const activeId = activeSession?.id;
 
@@ -213,9 +228,29 @@ function App() {
   }
 
   const emptyHint = useMemo(() => messages.length === 0, [messages]);
+  const showcaseSkillName = path.startsWith('/skills/') ? decodeURIComponent(path.slice('/skills/'.length)) : '';
+  const adminSkillName = path.startsWith('/admin/skills/') ? decodeURIComponent(path.slice('/admin/skills/'.length)) : '';
+  const mcpName = path.startsWith('/admin/mcps/') ? decodeURIComponent(path.slice('/admin/mcps/'.length)) : '';
+  const selectedShowcaseSkill = skills.find((skill) => skill.name === showcaseSkillName);
+  const selectedSkill = skills.find((skill) => skill.name === adminSkillName);
+  const selectedMcp = mcps.find((mcp) => mcp.name === mcpName);
+  const notifyManagement = (text: string) => {
+    setManagementNotice(text);
+    window.setTimeout(() => setManagementNotice(''), 2400);
+  };
+  const updateSkill = (next: SkillDefinition) => setSkills((items) => items.map((item) => item.name === next.name ? next : item));
+  const updateMcp = (next: McpDefinition) => setMcps((items) => items.map((item) => item.name === next.name ? next : item));
+  const installSkill = (name: string) => {
+    setSkills((items) => items.map((item) => item.name === name ? { ...item, installed: true } : item));
+    notifyManagement('Skill 已安装到你的助手');
+  };
+  const trySkill = (example: string) => {
+    setSkillTryText(example);
+    navigate('/chat');
+  };
 
-  return (
-    <main className={`app-shell ${historyCollapsed ? 'history-collapsed' : ''}`}>
+  let page = (
+    <div className={`chat-workspace app-shell ${historyCollapsed ? 'history-collapsed' : ''}`}>
       <HistoryPanel
         sessions={sessions}
         activeSessionId={activeSession?.id}
@@ -239,15 +274,26 @@ function App() {
           webSearchEnabled={webSearchEnabled}
           onWebSearchChange={setWebSearchEnabled}
           onSend={sendMessage}
+          initialText={skillTryText}
         />
       </section>
-      {renameTarget && (
-        <RenameDialog session={renameTarget} onCancel={() => setRenameTarget(null)} onConfirm={renameSession} />
-      )}
-      {deleteTarget && (
-        <DeleteDialog session={deleteTarget} onCancel={() => setDeleteTarget(null)} onConfirm={deleteSession} />
-      )}
-    </main>
+      {renameTarget && <RenameDialog session={renameTarget} onCancel={() => setRenameTarget(null)} onConfirm={renameSession} />}
+      {deleteTarget && <DeleteDialog session={deleteTarget} onCancel={() => setDeleteTarget(null)} onConfirm={deleteSession} />}
+    </div>
+  );
+
+  if (path === '/skills') page = <SkillCenterPage skills={skills} onNavigate={navigate} onInstall={installSkill} />;
+  if (selectedShowcaseSkill) page = <SkillShowcasePage skill={selectedShowcaseSkill} onNavigate={navigate} onInstall={installSkill} onTry={trySkill} />;
+  if (path === '/admin/skills') page = <><AdminNav path={path} onNavigate={navigate} /><SkillsPage skills={skills} onNavigate={navigate} onCreate={() => notifyManagement('新建 Skill 向导将在下一步接入，当前已展示完整管理原型')} /></>;
+  if (selectedSkill) page = <><AdminNav path={path} onNavigate={navigate} /><SkillDetailPage skill={selectedSkill} onNavigate={navigate} onUpdate={updateSkill} /></>;
+  if (path === '/admin/mcps') page = <><AdminNav path={path} onNavigate={navigate} /><McpsPage mcps={mcps} skills={skills} onNavigate={navigate} onCreate={() => notifyManagement('接入 MCP 向导将在下一步接入，当前已展示完整管理原型')} onHealthCheck={() => { setMcps((items) => items.map((item) => item.status === 'disabled' ? item : { ...item, health: 'healthy', updatedAt: '刚刚' })); notifyManagement('全部健康检查已完成'); }} /></>;
+  if (selectedMcp) page = <><AdminNav path={path} onNavigate={navigate} /><McpDetailPage mcp={selectedMcp} skills={skills} onNavigate={navigate} onUpdate={updateMcp} /></>;
+
+  return (
+    <AppShell path={path} onNavigate={navigate}>
+      {page}
+      {managementNotice && <div className="prototype-toast">{managementNotice}</div>}
+    </AppShell>
   );
 }
 
