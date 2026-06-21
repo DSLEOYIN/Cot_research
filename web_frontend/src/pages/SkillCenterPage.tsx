@@ -1,101 +1,111 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SkillDefinition } from '../managementData';
+import { SkillCard } from '../components/SkillCard';
 
-type Props = { skills: SkillDefinition[]; onNavigate: (path: string) => void; onInstall: (name: string) => void };
+type Props = {
+  skills: SkillDefinition[];
+  onNavigate: (path: string) => void;
+  recentlyInstalledSkillName?: string;
+  onSeenRecentlyInstalled?: () => void;
+  onToggleEnable: (name: string) => void;
+};
 
-const marketCategories = [
-  { name: '全部类别', icon: '✦', description: '浏览市场中的全部能力' },
-  { name: '数据与分析', icon: '数', description: '查询、洞察与可视化' },
-  { name: '知识与检索', icon: '知', description: '知识库与联网搜索' },
-  { name: '内容创作', icon: '文', description: '写作、设计与多媒体' },
-  { name: '效率办公', icon: '效', description: '文档、会议与协作' },
-  { name: '开发工具', icon: '码', description: '编码、测试与运维' },
-  { name: '自动化', icon: '自', description: '流程编排与任务执行' },
-];
+const categories = ['全部类别', '数据与分析', '知识与检索', '效率办公'];
 
-const marketCategoryFor = (skill: SkillDefinition) => {
+const categoryFor = (skill: SkillDefinition) => {
   if (skill.category === '数据分析' || skill.category === '联网分析') return '数据与分析';
   if (skill.category === '联网检索') return '知识与检索';
-  if (skill.category === '闲聊') return '效率办公';
-  return '自动化';
+  return '效率办公';
 };
 
 const matchesQuery = (skill: SkillDefinition, query: string) =>
   `${skill.displayName}${skill.tagline}${skill.description}${skill.outcomes?.join('')}`.toLowerCase().includes(query.trim().toLowerCase());
 
-export function SkillCenterPage({ skills, onNavigate, onInstall }: Props) {
-  const [storeQuery, setStoreQuery] = useState('');
-  const [marketCategory, setMarketCategory] = useState('全部类别');
-  const [recommendation, setRecommendation] = useState('为你推荐');
-  const [mySkillQuery, setMySkillQuery] = useState('');
-  const [mySkillCategory, setMySkillCategory] = useState('全部类别');
-  const [mySkillSort, setMySkillSort] = useState('最近更新');
-
-  const featured = skills.filter((skill) => skill.featured).slice(0, 2);
+export function SkillCenterPage({ skills, onNavigate, recentlyInstalledSkillName, onSeenRecentlyInstalled, onToggleEnable }: Props) {
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('全部类别');
+  const [sort, setSort] = useState('最近使用');
   const installedSkills = skills.filter((skill) => skill.installed);
-  const discoveredSkills = useMemo(() => {
-    const matched = skills.filter((skill) => matchesQuery(skill, storeQuery)
-      && (marketCategory === '全部类别' || marketCategoryFor(skill) === marketCategory));
-    if (recommendation === '已安装优先') return [...matched].sort((a, b) => Number(Boolean(b.installed)) - Number(Boolean(a.installed)));
-    if (recommendation === '最新上架') return [...matched].reverse();
-    return matched;
-  }, [skills, storeQuery, marketCategory, recommendation]);
-  const popular = discoveredSkills.slice(0, 4);
+  const enabledCount = installedSkills.filter((skill) => skill.enabledForUser).length;
+  const updateCount = installedSkills.filter((skill) => skill.updateAvailable).length;
+  const totalSkillUsage = installedSkills.reduce((sum, skill) => sum + (skill.usageCount30d || 0), 0);
+  const skillUsageMax = Math.max(...installedSkills.map((item) => item.usageCount30d || 1), 1);
+  const mcpUsageRanking = Object.entries(installedSkills.reduce<Record<string, number>>((acc, skill) => {
+    skill.mcpTools.forEach((mcp) => {
+      acc[mcp] = (acc[mcp] || 0) + (skill.usageCount30d || 0);
+    });
+    return acc;
+  }, {})).sort((a, b) => b[1] - a[1]);
+  const mcpUsageMax = Math.max(...mcpUsageRanking.map(([, count]) => count), 1);
+  const topSkill = [...installedSkills].sort((a, b) => (b.usageCount30d || 0) - (a.usageCount30d || 0))[0];
+  const topMcp = mcpUsageRanking[0];
+
+  useEffect(() => {
+    if (!recentlyInstalledSkillName) return;
+    const timer = window.setTimeout(() => onSeenRecentlyInstalled?.(), 2600);
+    return () => window.clearTimeout(timer);
+  }, [recentlyInstalledSkillName, onSeenRecentlyInstalled]);
+
   const managedSkills = useMemo(() => {
-    const matched = installedSkills.filter((skill) => matchesQuery(skill, mySkillQuery)
-      && (mySkillCategory === '全部类别' || marketCategoryFor(skill) === mySkillCategory));
-    if (mySkillSort === '名称排序') return [...matched].sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
-    if (mySkillSort === '最近安装') return [...matched].reverse();
-    return matched;
-  }, [installedSkills, mySkillQuery, mySkillCategory, mySkillSort]);
+    const matched = installedSkills.filter((skill) => matchesQuery(skill, query)
+      && (category === '全部类别' || categoryFor(skill) === category));
+    if (sort === '名称') return [...matched].sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
+    if (sort === '更新优先') return [...matched].sort((a, b) => Number(!!b.updateAvailable) - Number(!!a.updateAvailable));
+    return [...matched].sort((a, b) => (b.usageCount30d || 0) - (a.usageCount30d || 0));
+  }, [installedSkills, query, category, sort]);
 
-  const installButton = (skill: SkillDefinition) => (
-    <button className={`store-install-button ${skill.installed ? 'installed' : ''}`} type="button" onClick={(event) => {
-      event.stopPropagation();
-      skill.installed ? onNavigate(`/skills/${skill.name}`) : onInstall(skill.name);
-    }}>{skill.installed ? '打开' : '获取'}</button>
-  );
+  const hasNoInstalledSkills = installedSkills.length === 0;
 
-  const skillRow = (skill: SkillDefinition) => (
-    <article className="skill-app-row" key={skill.name} onClick={() => onNavigate(`/skills/${skill.name}`)}>
-      <div className={`skill-app-icon category-${skill.category}`}>{skill.displayName.slice(0, 1)}</div>
-      <div className="skill-app-copy"><h3>{skill.displayName}</h3><p>{skill.tagline}</p><span>{marketCategoryFor(skill)} · {skill.outputType}</span></div>
-      {installButton(skill)}
-    </article>
-  );
-
-  return <section className="skill-center-page app-store-layout">
-    <header className="skill-store-title">
-      <div><span>企业内部能力市场</span><h1>Skill 商店</h1><p>发现、安装并体验适合你的 ChatBI 能力。</p></div>
+  return <section className="skill-center-page my-skill-home">
+    <header className="my-skill-home-header">
+      <div><span>MY SKILLS</span><h1>我的 Skill</h1><p>管理已安装到 ChatBI 助手的能力，查看启用状态、更新可用和使用热度。</p></div>
+      <button type="button" onClick={() => onNavigate('/skills/library')}>浏览 Skill 商店 <b>→</b></button>
     </header>
-    <label className="skill-store-search prominent"><span>⌕</span><input value={storeQuery} onChange={(e) => setStoreQuery(e.target.value)} placeholder="搜索名称、场景或能力" /><kbd>搜索 Skill</kbd></label>
-
-    {!storeQuery && marketCategory === '全部类别' && <>
-      <div className="store-section-title"><div><span>FEATURED</span><h2>精选推荐</h2></div><p>经过企业审核、适合快速上手的能力</p></div>
-      <div className="editorial-grid">{featured.map((skill, index) => <article className={`editorial-card editorial-${index + 1}`} key={skill.name} onClick={() => onNavigate(`/skills/${skill.name}`)}>
-        <div><span>{marketCategoryFor(skill)}精选</span><h2>{skill.displayName}</h2><p>{skill.tagline}</p></div>
-        <div className="editorial-visual"><i>{skill.displayName.slice(0, 1)}</i><b>{skill.outcomes?.[0]}</b><b>{skill.outcomes?.[1]}</b></div>
-        <footer><div className="mini-app-icon">{skill.displayName.slice(0, 1)}</div><div><strong>{skill.displayName}</strong><span>{skill.outputType}</span></div>{installButton(skill)}</footer>
-      </article>)}</div>
-    </>}
-
-    <div className="store-section-title"><div><span>DISCOVER</span><h2>热门 Skill</h2></div><p>不知道选什么？从大家常用和平台推荐开始</p></div>
-    <div className="market-discovery-bar">
-      <label><span>市场分类</span><select value={marketCategory} onChange={(e) => setMarketCategory(e.target.value)}>{marketCategories.map((category) => <option key={category.name}>{category.name}</option>)}</select></label>
-      <label><span>推荐方式</span><select value={recommendation} onChange={(e) => setRecommendation(e.target.value)}><option>为你推荐</option><option>最新上架</option><option>已安装优先</option></select></label>
-      <strong>{discoveredSkills.length} 个可用 Skill</strong>
-    </div>
-    {popular.length ? <div className="popular-skill-list">{popular.map(skillRow)}</div> : <div className="skill-empty-state"><strong>这个分类正在扩充</strong><span>目前还没有上架的 Skill，可以先浏览其他市场分类。</span></div>}
-
-    <div className="store-section-title catalog-title"><div><span>MARKET CATEGORIES</span><h2>发现更多 Skill</h2></div><p>按照通用 AI 能力市场分类浏览</p></div>
-    <div className="market-category-grid">{marketCategories.slice(1).map((category) => <button type="button" className={marketCategory === category.name ? 'active' : ''} key={category.name} onClick={() => setMarketCategory(category.name)}><i>{category.icon}</i><strong>{category.name}</strong><span>{category.description}</span><b>{skills.filter((skill) => marketCategoryFor(skill) === category.name).length}</b></button>)}</div>
-
-    <div className="store-section-title all-skills-title"><div><span>MY SKILLS</span><h2>我的 Skill</h2></div><p>{installedSkills.length} 个已安装到你的助手</p></div>
-    <div className="my-skill-toolbar">
-      <label className="my-skill-search"><span>⌕</span><input value={mySkillQuery} onChange={(e) => setMySkillQuery(e.target.value)} placeholder="搜索已安装 Skill" /></label>
-      <label><span>类别</span><select value={mySkillCategory} onChange={(e) => setMySkillCategory(e.target.value)}>{marketCategories.map((category) => <option key={category.name}>{category.name}</option>)}</select></label>
-      <label><span>排序</span><select value={mySkillSort} onChange={(e) => setMySkillSort(e.target.value)}><option>最近更新</option><option>最近安装</option><option>名称排序</option></select></label>
-    </div>
-    {managedSkills.length ? <div className="all-skill-list">{managedSkills.map(skillRow)}</div> : <div className="skill-empty-state"><strong>没有找到已安装的 Skill</strong><span>试试更换搜索词或类别。</span></div>}
+    {recentlyInstalledSkillName && <div className="skill-inline-notice">
+      <strong>刚安装完成</strong>
+      <span>{skills.find((skill) => skill.name === recentlyInstalledSkillName)?.displayName || recentlyInstalledSkillName} 已加入你的助手，安装后需启用才能在问答中调用。</span>
+    </div>}
+    {!hasNoInstalledSkills && <section className="usage-chart enhanced-usage-board">
+      <header><div><span>STATUS</span><h2>近 30 天使用次数</h2></div><p>同时查看启用状态、最近常用 Skill 与 MCP，以及近 30 天使用表现与 MCP 调用热度</p></header>
+      <div className="skill-health-strip">
+        <article><span>启用状态</span><strong>{enabledCount}/{installedSkills.length}</strong><small>已启用 Skill</small></article>
+        <article><span>最近常用 Skill</span><strong>{topSkill?.displayName || '--'}</strong><small>{topSkill?.usageCount30d || 0} 次调用</small></article>
+        <article><span>最近常用 MCP</span><strong>{topMcp?.[0] || '--'}</strong><small>{topMcp?.[1] || 0} 次调用</small></article>
+      </div>
+      <div className="skill-meta-board">
+        <article><span>最近 30 天成功率</span><strong>{installedSkills[0]?.successRate || '--'}</strong><small>按最近常用 Skill 聚合</small></article>
+        <article><span>待更新版本</span><strong>{updateCount}</strong><small>安装后可手动升级</small></article>
+        <article><span>Skill 调用总次数</span><strong>{totalSkillUsage}</strong><small>近 30 天累计使用热度</small></article>
+      </div>
+      <div className="usage-split-grid">
+        <section className="usage-subsection">
+          <div className="usage-subsection-head"><strong>Skill 使用排行</strong><span>近 30 天调用次数</span></div>
+          <div className="usage-ranking">{[...installedSkills].sort((a, b) => (b.usageCount30d || 0) - (a.usageCount30d || 0)).map((skill, index) => <article key={skill.name}>
+            <b>{index + 1}</b><span>{skill.displayName}</span>
+            <div><i className="usage-rank-fill" style={{ width: `${Math.max(18, ((skill.usageCount30d || 0) / skillUsageMax) * 100)}%` }} /></div>
+            <strong>{skill.usageCount30d || 0}</strong>
+          </article>)}</div>
+        </section>
+        <section className="usage-subsection">
+          <div className="usage-subsection-head"><strong>MCP 调用排行</strong><span>近 30 天调用次数</span></div>
+          <div className="usage-ranking mcp-usage-ranking">{mcpUsageRanking.slice(0, 5).map(([mcpName, count], index) => <article key={mcpName}>
+            <b>{index + 1}</b><span>{mcpName}</span>
+            <div><i className="usage-rank-fill usage-rank-fill-mcp" style={{ width: `${Math.max(18, (count / mcpUsageMax) * 100)}%` }} /></div>
+            <strong>{count}</strong>
+          </article>)}</div>
+        </section>
+      </div>
+    </section>}
+    <div className="store-section-title all-skills-title"><div><span>INSTALLED</span><h2>已安装 Skill</h2></div><p>{installedSkills.length} 个已安装 · {managedSkills.length} 个结果</p></div>
+    {!hasNoInstalledSkills && <div className="my-skill-toolbar">
+      <label className="my-skill-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索已安装 Skill" /></label>
+      <label className="filter-select-field"><span>类别</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label className="filter-select-field"><span>排序</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option>最近使用</option><option>更新优先</option><option>名称</option></select></label>
+    </div>}
+    {hasNoInstalledSkills ? <div className="skill-empty-state">
+      <strong>你还没有安装任何 Skill</strong>
+      <span>去 Skill 商店挑几个常用能力装到助手里。</span>
+      <button type="button" onClick={() => onNavigate('/skills/library')}>前往 Skill 商店</button>
+    </div> : managedSkills.length ? <div className="all-skill-list">{managedSkills.map((skill) => <SkillCard key={skill.name} skill={skill} onNavigate={onNavigate} onToggleEnable={onToggleEnable} highlight={skill.name === recentlyInstalledSkillName} />)}</div> : <div className="skill-empty-state"><strong>没有找到已安装的 Skill</strong><span>试试更换搜索词或类别。</span></div>}
   </section>;
 }

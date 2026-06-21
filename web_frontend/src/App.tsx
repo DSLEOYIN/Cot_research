@@ -7,7 +7,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { MessageList } from './components/MessageList';
 import { RenameDialog } from './components/RenameDialog';
 import { AppShell } from './components/AppShell';
-import { initialMcps, initialSkills, McpDefinition, SkillDefinition } from './managementData';
+import { initialMcps, initialSkills, McpDefinition, OperationsTask, operationsTasks, SkillDefinition } from './managementData';
 import { useWorkspaceRoute } from './useWorkspaceRoute';
 import { SkillsPage } from './pages/SkillsPage';
 import { SkillDetailPage } from './pages/SkillDetailPage';
@@ -15,7 +15,11 @@ import { McpsPage } from './pages/McpsPage';
 import { McpDetailPage } from './pages/McpDetailPage';
 import { SkillCenterPage } from './pages/SkillCenterPage';
 import { SkillShowcasePage } from './pages/SkillShowcasePage';
+import { SkillLibraryPage } from './pages/SkillLibraryPage';
 import { AdminNav } from './components/AdminNav';
+import { AdminWorkbenchPage } from './pages/AdminWorkbenchPage';
+import { AdminReviewPage } from './pages/AdminReviewPage';
+import { AdminReleasePage } from './pages/AdminReleasePage';
 
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -29,8 +33,10 @@ function App() {
   const [deleteTarget, setDeleteTarget] = useState<ChatSession | null>(null);
   const [skills, setSkills] = useState<SkillDefinition[]>(initialSkills);
   const [mcps, setMcps] = useState<McpDefinition[]>(initialMcps);
+  const [opsTasks] = useState<OperationsTask[]>(operationsTasks);
   const [managementNotice, setManagementNotice] = useState('');
   const [skillTryText, setSkillTryText] = useState('');
+  const [recentlyInstalledSkillName, setRecentlyInstalledSkillName] = useState('');
   const bootstrapped = useRef(false);
   const { path, navigate } = useWorkspaceRoute();
 
@@ -241,8 +247,13 @@ function App() {
   const updateSkill = (next: SkillDefinition) => setSkills((items) => items.map((item) => item.name === next.name ? next : item));
   const updateMcp = (next: McpDefinition) => setMcps((items) => items.map((item) => item.name === next.name ? next : item));
   const installSkill = (name: string) => {
-    setSkills((items) => items.map((item) => item.name === name ? { ...item, installed: true } : item));
+    setSkills((items) => items.map((item) => item.name === name ? { ...item, installed: true, enabledForUser: false } : item));
+    setRecentlyInstalledSkillName(name);
     notifyManagement('Skill 已安装到你的助手');
+  };
+  const toggleSkillEnable = (name: string) => {
+    setSkills((items) => items.map((item) => item.name === name ? { ...item, enabledForUser: !item.enabledForUser } : item));
+    notifyManagement('用户侧启用状态已更新');
   };
   const trySkill = (example: string) => {
     setSkillTryText(example);
@@ -282,10 +293,14 @@ function App() {
     </div>
   );
 
-  if (path === '/skills') page = <SkillCenterPage skills={skills} onNavigate={navigate} onInstall={installSkill} />;
+  if (path === '/skills') page = <SkillCenterPage skills={skills} onNavigate={navigate} recentlyInstalledSkillName={recentlyInstalledSkillName} onSeenRecentlyInstalled={() => setRecentlyInstalledSkillName('')} onToggleEnable={toggleSkillEnable} />;
+  if (path === '/skills/library') page = <SkillLibraryPage skills={skills} onNavigate={navigate} onInstall={installSkill} recentlyInstalledSkillName={recentlyInstalledSkillName} />;
   if (selectedShowcaseSkill) page = <SkillShowcasePage skill={selectedShowcaseSkill} onNavigate={navigate} onInstall={installSkill} onTry={trySkill} />;
-  if (path === '/admin/skills') page = <><AdminNav path={path} onNavigate={navigate} /><SkillsPage skills={skills} onNavigate={navigate} onCreate={() => notifyManagement('新建 Skill 向导将在下一步接入，当前已展示完整管理原型')} /></>;
-  if (selectedSkill) page = <><AdminNav path={path} onNavigate={navigate} /><SkillDetailPage skill={selectedSkill} onNavigate={navigate} onUpdate={updateSkill} /></>;
+  if (path === '/admin') page = <><AdminNav path={path} onNavigate={navigate} /><AdminWorkbenchPage tasks={opsTasks} skills={skills} mcps={mcps} onNavigate={navigate} /></>;
+  if (path === '/admin/reviews') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReviewPage tasks={opsTasks} onNavigate={navigate} /></>;
+  if (path === '/admin/releases') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReleasePage tasks={opsTasks} skills={skills} mcps={mcps} /></>;
+  if (path === '/admin/skills') page = <><AdminNav path={path} onNavigate={navigate} /><SkillsPage skills={skills} tasks={opsTasks} onNavigate={navigate} onCreate={() => notifyManagement('新建 Skill 向导将在下一步接入，当前已展示完整管理原型')} /></>;
+  if (selectedSkill) page = <><AdminNav path={path} onNavigate={navigate} /><SkillDetailPage skill={selectedSkill} tasks={opsTasks} onNavigate={navigate} onUpdate={updateSkill} /></>;
   if (path === '/admin/mcps') page = <><AdminNav path={path} onNavigate={navigate} /><McpsPage mcps={mcps} skills={skills} onNavigate={navigate} onCreate={() => notifyManagement('接入 MCP 向导将在下一步接入，当前已展示完整管理原型')} onHealthCheck={() => { setMcps((items) => items.map((item) => item.status === 'disabled' ? item : { ...item, health: 'healthy', updatedAt: '刚刚' })); notifyManagement('全部健康检查已完成'); }} /></>;
   if (selectedMcp) page = <><AdminNav path={path} onNavigate={navigate} /><McpDetailPage mcp={selectedMcp} skills={skills} onNavigate={navigate} onUpdate={updateMcp} /></>;
 

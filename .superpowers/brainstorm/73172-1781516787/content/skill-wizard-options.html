@@ -1,0 +1,89 @@
+<h2>Skill 创建页方向对比</h2>
+<p class="subtitle">目标：不要一上来展示全部信息，而是像填表单一样按步骤推进，同时把“大模型协作”放到流程前面。</p>
+
+<div class="cards">
+  <div class="card" data-choice="option-a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 A：对话优先向导</div>
+        <div class="mockup-body" style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;gap:8px;align-items:center">
+            <div style="width:28px;height:28px;border-radius:999px;background:#111827;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px">1</div>
+            <strong>先说你想创建什么 Skill</strong>
+          </div>
+          <div class="placeholder" style="text-align:left">我想做一个“内部销量与库存诊断”的 Skill</div>
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="width:28px;height:28px;border-radius:999px;background:#dcfce7;color:#166534;display:flex;align-items:center;justify-content:center;font-size:12px">AI</div>
+            <div class="placeholder" style="text-align:left;flex:1">
+              我先帮你补清需求：
+              <br>1. 主要看销量、库存还是订单？
+              <br>2. 输出要摘要、表格还是结论建议？
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="placeholder" style="text-align:left">已补全：目标 / 场景</div>
+            <div class="placeholder" style="text-align:left">已补全：输出 / 依赖</div>
+          </div>
+          <button class="mock-button">确认并生成草案</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 A：先聊清楚，再生成</h3>
+      <p>更符合“和大模型一起创建 Skill”的心智，用户只需要先说想法，系统追问 1 到 2 轮后再进入生成。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="option-b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 B：轻表单分步向导</div>
+        <div class="mockup-body" style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;gap:10px">
+            <div class="placeholder" style="flex:1;text-align:left;background:#eef2ff">步骤 1：基础信息</div>
+            <div class="placeholder" style="flex:1;text-align:left">步骤 2：AI 生成</div>
+            <div class="placeholder" style="flex:1;text-align:left">步骤 3：校对</div>
+            <div class="placeholder" style="flex:1;text-align:left">步骤 4：测试</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <input class="mock-input" value="Skill 名称" />
+            <input class="mock-input" value="目标" />
+            <input class="mock-input" value="适用场景" />
+            <input class="mock-input" value="期望输出" />
+          </div>
+          <div class="placeholder" style="min-height:92px;text-align:left">
+            可选：补一句自然语言说明
+            <br>“帮我创建一个用于内部业务查询和诊断的 Skill”
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="color:#64748b;font-size:13px">这一步先只收最少信息</span>
+            <button class="mock-button">下一步</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 B：先填最小表单，再逐步展开</h3>
+      <p>更接近传统后台操作，认知成本低，但大模型的协作感会弱一点。</p>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons" style="margin-top:24px">
+  <div class="pros">
+    <h4>我当前推荐</h4>
+    <ul>
+      <li>优先选方案 A，再吸收方案 B 的分步节奏</li>
+      <li>首页只出现一个输入框和“开始创建”按钮</li>
+      <li>生成、校对、测试都放到后续步骤里逐步出现</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>当前页面主要问题</h4>
+    <ul>
+      <li>四个步骤和大量状态一次性摊开，信息密度过高</li>
+      <li>页面顶部动作和流程内容抢主视觉，层级不清晰</li>
+      <li>“AI 生成”只是结果展示，不像真实协作过程</li>
+    </ul>
+  </div>
+</div>

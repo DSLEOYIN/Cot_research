@@ -7,9 +7,10 @@ type Props = {
 
 const items = [
   { path: '/chat', label: '智能问答', icon: '✦' },
-  { path: '/skills', label: 'Skill 商店', icon: '◇' },
-  { path: '/admin/skills', label: '系统管理', icon: '⌘' },
+  { path: '/skills', label: '我的 Skill', icon: '◇' },
+  { path: '/admin', label: '系统管理', icon: '⌘' },
 ];
+// Admin routes live under /admin, with catalogs at /admin/skills and /admin/mcps.
 
 export function GlobalNav({ path, collapsed, onNavigate, onToggle }: Props) {
   return (

@@ -13,6 +13,7 @@ __pycache__/
 .idea/
 .claude/
 .gemini/
+.worktrees/
 
 # System Generated Logs
 .system_generated/
