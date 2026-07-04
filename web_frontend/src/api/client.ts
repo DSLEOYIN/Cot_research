@@ -40,7 +40,93 @@ export type ChatSession = {
   updated_at: string;
   last_mode?: string | null;
   last_web_search_enabled: boolean;
+  pending_action_skill?: string | null;
+  pending_action_message?: string | null;
+  pending_action_status?: string | null;
   messages?: ChatMessage[];
+};
+
+export type CapabilitySummary = {
+  name: string;
+  displayName: string;
+  category: string;
+  description: string;
+  outputType: string;
+  applicableOrganizations?: string[];
+  status?: string;
+};
+
+export type OrganizationPermissionProfile = {
+  id?: string;
+  organizationName: string;
+  roleName: string;
+  openSkills: string[];
+  dataDomains: string[];
+  actionPermissions: string[];
+  approvalMode: string;
+};
+
+export type AccountPermissionProfile = {
+  id: string;
+  username: string;
+  displayName: string;
+  organizationId: string;
+  organizationName: string;
+  roleIds: string[];
+  roleNames: string[];
+  allowedSkills: string[];
+  deniedSkills: string[];
+  effectiveSkills: string[];
+  effectiveDataDomains: string[];
+  effectiveActionPermissions: string[];
+  canAccessAdmin: boolean;
+  permissionSources: {
+    organization: {
+      organizationName: string;
+      openSkills: string[];
+      dataDomains: string[];
+      actionPermissions: string[];
+    };
+    roles: {
+      roleName: string;
+      openSkills: string[];
+      dataDomains: string[];
+      actionPermissions: string[];
+    }[];
+    accountOverride: {
+      allowedSkills: string[];
+      deniedSkills: string[];
+    };
+  };
+};
+
+export type AdminRoleProfile = {
+  id: string;
+  roleName: string;
+  openSkills: string[];
+  dataDomains: string[];
+  actionPermissions: string[];
+  canAccessAdmin: boolean;
+};
+
+export type LoginResponse = {
+  token: string;
+  account: AccountPermissionProfile;
+};
+
+export type AdminSkillPayload = Record<string, unknown>;
+export type AdminMcpPayload = Record<string, unknown>;
+export type PlatformMetricsPayload = Record<string, unknown>;
+export type ActionGovernancePayload = Record<string, unknown>;
+export type GovernanceTaskPayload = Record<string, unknown>;
+export type ReleaseActivityPayload = Record<string, unknown>;
+export type PermissionAuditLog = {
+  id: number;
+  entityType: string;
+  entityId: string;
+  entityName: string;
+  changeSummary: string;
+  createdAt: string;
 };
 
 export type ChatStreamEvent =
@@ -71,6 +157,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  login: (username: string, password: string) =>
+    request<LoginResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  getCurrentAccount: (accountId: string) => request<AccountPermissionProfile>(`/api/auth/me?account_id=${encodeURIComponent(accountId)}`),
   listSessions: () => request<ChatSession[]>('/api/sessions'),
   createSession: (title?: string) =>
     request<ChatSession>('/api/sessions', { method: 'POST', body: JSON.stringify({ title }) }),
@@ -83,6 +173,52 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ session_id, message, web_search_enabled }),
     }),
+  listCapabilities: () => request<CapabilitySummary[]>('/api/capabilities'),
+  getCapability: (skillId: string) => request<CapabilitySummary>(`/api/capabilities/${skillId}`),
+  listMyCapabilities: () => request<CapabilitySummary[]>('/api/users/me/capabilities'),
+  listOrganizations: () => request<OrganizationPermissionProfile[]>('/api/organizations'),
+  getOrganizationPermissions: (orgId: string) => request<OrganizationPermissionProfile>(`/api/organizations/${orgId}/permissions`),
+  updateOrganizationPermissions: (orgId: string, payload: Partial<OrganizationPermissionProfile>) =>
+    request<OrganizationPermissionProfile>(`/api/organizations/${orgId}/permissions`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  listAdminRoles: () => request<AdminRoleProfile[]>('/api/admin/roles'),
+  updateAdminRole: (roleId: string, payload: Partial<AdminRoleProfile>) =>
+    request<AdminRoleProfile>(`/api/admin/roles/${roleId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  listAccounts: () => request<AccountPermissionProfile[]>('/api/admin/accounts'),
+  createAccount: (payload: Partial<AccountPermissionProfile> & { password?: string }) =>
+    request<AccountPermissionProfile>('/api/admin/accounts', { method: 'POST', body: JSON.stringify(payload) }),
+  getAccountPermissions: (accountId: string) => request<AccountPermissionProfile>(`/api/admin/accounts/${accountId}/permissions`),
+  updateAccountPermissions: (accountId: string, payload: Partial<AccountPermissionProfile>) =>
+    request<AccountPermissionProfile>(`/api/admin/accounts/${accountId}/permissions`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  listAdminSkills: () => request<AdminSkillPayload[]>('/api/admin/skills'),
+  getAdminSkill: (skillId: string) => request<AdminSkillPayload>(`/api/admin/skills/${skillId}`),
+  createAdminSkill: (payload: AdminSkillPayload) =>
+    request<AdminSkillPayload>('/api/admin/skills', { method: 'POST', body: JSON.stringify(payload) }),
+  updateAdminSkill: (skillId: string, payload: AdminSkillPayload) =>
+    request<AdminSkillPayload>(`/api/admin/skills/${skillId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  testAdminSkill: (skillId: string, payload: AdminSkillPayload) =>
+    request<AdminSkillPayload>(`/api/admin/skills/${skillId}/test`, { method: 'POST', body: JSON.stringify(payload) }),
+  listGovernanceTasks: () => request<GovernanceTaskPayload[]>('/api/admin/governance/tasks'),
+  listReleaseActivities: () => request<ReleaseActivityPayload[]>('/api/admin/governance/activities'),
+  submitSkillGovernance: (skillId: string) =>
+    request<Record<string, unknown>>(`/api/admin/governance/skills/${skillId}/submit`, { method: 'POST' }),
+  approveGovernanceTask: (taskId: string) =>
+    request<Record<string, unknown>>(`/api/admin/governance/tasks/${taskId}/approve`, { method: 'POST' }),
+  publishGovernanceTask: (taskId: string) =>
+    request<Record<string, unknown>>(`/api/admin/governance/tasks/${taskId}/publish`, { method: 'POST' }),
+  listAdminMcps: () => request<AdminMcpPayload[]>('/api/admin/mcps'),
+  getAdminMcp: (mcpId: string) => request<AdminMcpPayload>(`/api/admin/mcps/${mcpId}`),
+  createAdminMcp: (payload: AdminMcpPayload) =>
+    request<AdminMcpPayload>('/api/admin/mcps', { method: 'POST', body: JSON.stringify(payload) }),
+  updateAdminMcp: (mcpId: string, payload: AdminMcpPayload) =>
+    request<AdminMcpPayload>(`/api/admin/mcps/${mcpId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  runAdminMcpHealthCheck: (mcpId: string) =>
+    request<AdminMcpPayload>(`/api/admin/mcps/${mcpId}/health-check`, { method: 'POST' }),
+  getPlatformMetricsOverview: () => request<PlatformMetricsPayload>('/api/admin/metrics/overview'),
+  getPlatformSkillMetrics: () => request<PlatformMetricsPayload>('/api/admin/metrics/skills'),
+  getPlatformOrganizationMetrics: () => request<PlatformMetricsPayload>('/api/admin/metrics/organizations'),
+  listPlatformAlerts: () => request<PlatformMetricsPayload[]>('/api/admin/alerts'),
+  listPermissionAuditLogs: () => request<PermissionAuditLog[]>('/api/admin/audit/permissions'),
+  listActionGovernanceCases: () => request<ActionGovernancePayload[]>('/api/admin/action-governance'),
   chatStream: async (
     session_id: string,
     message: string,

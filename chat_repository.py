@@ -9,6 +9,7 @@ from typing import Any
 
 
 DEFAULT_DB_PATH = Path(".system_generated/chat_sessions.db")
+_UNSET = object()
 
 
 def _now() -> str:
@@ -51,7 +52,10 @@ class ChatRepository:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     last_mode TEXT,
-                    last_web_search_enabled INTEGER DEFAULT 0
+                    last_web_search_enabled INTEGER DEFAULT 0,
+                    pending_action_skill TEXT,
+                    pending_action_message TEXT,
+                    pending_action_status TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS messages (
@@ -85,6 +89,13 @@ class ChatRepository:
                 );
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+            if "pending_action_skill" not in columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN pending_action_skill TEXT")
+            if "pending_action_message" not in columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN pending_action_message TEXT")
+            if "pending_action_status" not in columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN pending_action_status TEXT")
 
     def create_session(self, title: str | None = None) -> dict[str, Any]:
         created_at = _now()
@@ -182,6 +193,9 @@ class ChatRepository:
         is_pinned: bool | None = None,
         last_mode: str | None = None,
         last_web_search_enabled: bool | None = None,
+        pending_action_skill: str | None | object = _UNSET,
+        pending_action_message: str | None | object = _UNSET,
+        pending_action_status: str | None | object = _UNSET,
     ) -> dict[str, Any]:
         updates: list[str] = ["updated_at = ?"]
         values: list[Any] = [_now()]
@@ -200,6 +214,15 @@ class ChatRepository:
         if last_web_search_enabled is not None:
             updates.append("last_web_search_enabled = ?")
             values.append(int(last_web_search_enabled))
+        if pending_action_skill is not _UNSET:
+            updates.append("pending_action_skill = ?")
+            values.append(pending_action_skill)
+        if pending_action_message is not _UNSET:
+            updates.append("pending_action_message = ?")
+            values.append(pending_action_message)
+        if pending_action_status is not _UNSET:
+            updates.append("pending_action_status = ?")
+            values.append(pending_action_status)
         values.append(session_id)
         with self._connect() as conn:
             conn.execute(f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?", values)
@@ -341,6 +364,9 @@ class ChatRepository:
             "updated_at": row["updated_at"],
             "last_mode": row["last_mode"],
             "last_web_search_enabled": _bool(row["last_web_search_enabled"]),
+            "pending_action_skill": row["pending_action_skill"] if "pending_action_skill" in keys else None,
+            "pending_action_message": row["pending_action_message"] if "pending_action_message" in keys else None,
+            "pending_action_status": row["pending_action_status"] if "pending_action_status" in keys else None,
         }
 
     def _message_from_row(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:

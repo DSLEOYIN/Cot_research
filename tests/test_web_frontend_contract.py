@@ -51,6 +51,298 @@ def test_frontend_consumes_live_sse_steps():
     assert "answer_completed" in app
 
 
+def test_frontend_client_defines_platform_api_entry_points_from_dev_doc():
+    client = read(SRC / "api" / "client.ts")
+
+    assert "login" in client
+    assert "getCurrentAccount" in client
+    assert "pending_action_skill" in client
+    assert "pending_action_message" in client
+    assert "pending_action_status" in client
+    assert "listAccounts" in client
+    assert "createAccount" in client
+    assert "updateAccountPermissions" in client
+    assert "listCapabilities" in client
+    assert "getCapability" in client
+    assert "listMyCapabilities" in client
+    assert "listOrganizations" in client
+    assert "getOrganizationPermissions" in client
+    assert "updateOrganizationPermissions" in client
+    assert "listAdminSkills" in client
+    assert "getAdminSkill" in client
+    assert "testAdminSkill" in client
+    assert "listAdminMcps" in client
+    assert "getAdminMcp" in client
+    assert "runAdminMcpHealthCheck" in client
+    assert "listAdminRoles" in client
+    assert "updateAdminRole" in client
+    assert "getPlatformMetricsOverview" in client
+    assert "getPlatformSkillMetrics" in client
+    assert "getPlatformOrganizationMetrics" in client
+    assert "listPlatformAlerts" in client
+    assert "listActionGovernanceCases" in client
+    assert "listPermissionAuditLogs" in client
+    assert "'/api/capabilities'" in client
+    assert "'/api/auth/login'" in client
+    assert "'/api/admin/accounts'" in client
+    assert "'/api/organizations'" in client
+    assert "'/api/admin/metrics/overview'" in client
+    assert "'/api/admin/action-governance'" in client
+
+
+def test_login_page_and_app_auth_gate_protect_admin_routes():
+    app = read(SRC / "App.tsx")
+    login_page = read(SRC / "pages" / "LoginPage.tsx")
+    shell = read(SRC / "components" / "AppShell.tsx")
+
+    assert "LoginPage" in app
+    assert "currentAccount" in app
+    assert "api.login" in app
+    assert "api.getCurrentAccount" in app
+    assert "canAccessAdmin" in app
+    assert "setCurrentAccount(null)" in app
+    assert "账号登录" in login_page
+    assert "platform_admin" in login_page
+    assert "admin123" in login_page
+    assert "currentAccount" in shell
+    assert "退出登录" in shell
+
+
+def test_app_hydrates_platform_mock_api_without_breaking_local_prototype_fallback():
+    app = read(SRC / "App.tsx")
+    review_page = read(SRC / "pages" / "AdminReviewPage.tsx")
+    release_page = read(SRC / "pages" / "AdminReleasePage.tsx")
+    workbench = read(SRC / "pages" / "AdminWorkbenchPage.tsx")
+
+    assert "hydratePlatformPrototypeData" in app
+    assert "api.listAdminSkills()" in app
+    assert "api.listAdminMcps()" in app
+    assert "api.listOrganizations()" in app
+    assert "api.getPlatformMetricsOverview()" in app
+    assert "api.getPlatformSkillMetrics()" in app
+    assert "api.getPlatformOrganizationMetrics()" in app
+    assert "api.listPlatformAlerts()" in app
+    assert "api.listActionGovernanceCases()" in app
+    assert "mergeSkillFromApi" in app
+    assert "mergeMcpFromApi" in app
+    assert "catch(() => undefined)" in app
+    assert "setSkills((items)" in app
+    assert "setMcps((items)" in app
+    assert "setOrganizationProfiles" in app
+    assert "setPlatformMetricsState" in app
+    assert "setPlatformSkillMetricsState" in app
+    assert "setPlatformOrganizationMetricsState" in app
+    assert "setPlatformAlertsState" in app
+    assert "setActionGovernanceCasesState" in app
+    assert "organizationProfiles={organizationProfiles}" in app
+    assert "platformMetrics={platformMetricsState}" in app
+    assert "platformSkillMetrics={platformSkillMetricsState}" in app
+    assert "platformOrganizationMetrics={platformOrganizationMetricsState}" in app
+    assert "platformAlerts={platformAlertsState}" in app
+    assert "actionGovernanceCases={actionGovernanceCasesState}" in app
+    assert "organizationProfiles.map" in review_page
+    assert "platformMetrics.monthlyActiveUsers" in release_page
+    assert "platformMetrics.monthlyActiveUsers" in workbench
+
+
+def test_organization_permission_page_saves_profile_changes_through_api():
+    app = read(SRC / "App.tsx")
+    review_page = read(SRC / "pages" / "AdminReviewPage.tsx")
+
+    assert "saveAccountPermissions" in app
+    assert "createAccount" in app
+    assert "api.createAccount" in app
+    assert "api.updateAccountPermissions" in app
+    assert "setAccounts((items)" in app
+    assert "saveOrganizationProfile" in app
+    assert "api.updateOrganizationPermissions" in app
+    assert "setOrganizationProfiles((items)" in app
+    assert "onSaveProfile={saveOrganizationProfile}" in app
+    assert "onSaveProfile" in review_page
+    assert "授权变更已保存" in app
+    assert "保存权限变更" in review_page
+    assert "账号目录" in review_page
+    assert "搜索账号" in review_page
+    assert "组织筛选" in review_page
+    assert "角色筛选" in review_page
+    assert "每页 50 条" in review_page
+    assert "批量授权" in review_page
+    assert "权限详情" in review_page
+    assert "动作型 Skill 闭环" in review_page
+    assert "二次确认" in review_page
+    assert "失败回溯" in review_page
+    assert "审计轨迹" in review_page
+    assert "actionGovernanceCases" in review_page
+    assert "permissionAuditLogs" in review_page
+    assert "auditTypeFilter" in review_page
+    assert "auditWindow" in review_page
+    assert "auditSearch" in review_page
+    assert "viewMode === 'audit'" in review_page
+    assert "filteredAuditLogs" in review_page
+    assert "auditGroups" in review_page
+    assert "最近 7 天" in review_page
+    assert "全部类型" in review_page
+    assert "权限审计中心" in review_page
+    assert "按实体类型、时间范围和关键词追踪最近权限变更。" in review_page
+    assert "创建账号抽屉" in review_page
+    assert "账号权限" in review_page
+    assert "创建账号" in review_page
+    assert "账号基础信息" in review_page
+    assert "初始 Skill 覆盖" in review_page
+    assert "onCreateAccount" in review_page
+    assert "账号目录表格" in review_page
+    assert "权限来源" in review_page
+    assert "permissionSources" in review_page
+    assert "组织默认能力" in review_page
+    assert "角色默认能力" in review_page
+    assert "账号级开通" in review_page
+    assert "有效 Skill 权限" in review_page
+    assert "账号级覆盖" in review_page
+    assert "角色模板" in review_page
+    assert "roleDrafts" in review_page
+    assert "toggleRoleDraftValue" in review_page
+    assert "角色默认能力" in review_page
+    assert "角色动作权限" in review_page
+    assert "保存角色模板" in review_page
+    assert "api.updateAdminRole(roleId, { openSkills, dataDomains, actionPermissions, canAccessAdmin })" in app
+    assert "roleOptions = roleTemplates.map" in review_page
+    assert "onSaveAccountPermissions" in review_page
+    assert "nextApprovalMode" in review_page
+    assert "bulkSkill" in review_page
+    assert "bulkMode" in review_page
+    assert "onBulkGrantSkills" in review_page
+    assert "onBulkDenySkills" in review_page
+    assert "onExportPermissionReport" in review_page
+    assert "onBulkGrantSkills={bulkGrantSkills}" in app
+    assert "onBulkDenySkills={bulkDenySkills}" in app
+    assert "onExportPermissionReport={exportPermissionReport}" in app
+    assert "onSaveRoleTemplate={saveRoleTemplate}" in app
+    assert "api.listPermissionAuditLogs()" in app
+    assert "Promise.all" in app
+    assert "new Blob" in app
+    assert "URL.createObjectURL" in app
+    assert "permission-report-" in app
+    assert "selectedIds.length === 0" in review_page
+    assert "批量开通所选能力" in review_page
+    assert "批量禁用所选能力" in review_page
+    assert "导出权限清单" in review_page
+    assert "selectedIds.length > 0 ? accounts.filter" in review_page
+    assert "组织树视图" in review_page
+    assert "viewMode === 'organization'" in review_page
+    assert "按组织汇总账号、角色与默认能力范围" in review_page
+    assert "organizationDrafts" in review_page
+    assert "toggleOrganizationDraftValue" in review_page
+    assert "默认能力配置" in review_page
+    assert "数据域权限" in review_page
+    assert "动作权限" in review_page
+    assert "保存组织策略" in review_page
+    assert "api.updateOrganizationPermissions(organizationId, { approvalMode, openSkills, dataDomains, actionPermissions })" in app
+    css = read(SRC / "styles" / "app.css")
+    assert "permission-console" in css
+    assert "directory-toolbar" in css
+    assert "account-directory-table" in css
+    assert "permission-drawer" in css
+    assert "bulk-action-bar" in css
+    assert "account-create-panel" in css
+    assert "permission-summary-strip" in css
+    assert "organization-tree-grid" in css
+    assert "bulk-editor" in css
+    assert "organization-policy-editor" in css
+    assert "permission-audit-list" in css
+    assert "permission-audit-console" in css
+    assert "permission-audit-toolbar" in css
+    assert "permission-audit-group" in css
+
+
+def test_admin_redesign_uses_unified_asset_directory_and_stage_driven_detail_views():
+    app = read(SRC / "App.tsx")
+    nav = read(SRC / "components" / "AdminNav.tsx")
+    workbench = read(SRC / "pages" / "AdminWorkbenchPage.tsx")
+    review_page = read(SRC / "pages" / "AdminReviewPage.tsx")
+    release_page = read(SRC / "pages" / "AdminReleasePage.tsx")
+    skill_detail = read(SRC / "pages" / "SkillDetailPage.tsx")
+    mcp_detail = read(SRC / "pages" / "McpDetailPage.tsx")
+    management_data = read(SRC / "managementData.ts")
+    css = read(SRC / "styles" / "app.css")
+
+    assert "AssetType" in management_data
+    assert "LifecycleStage" in management_data
+    assert "UnifiedAssetRecord" in management_data
+    assert "buildUnifiedAssets" in management_data
+    assert "stageLabel" in management_data
+    assert "review_rejected" in management_data
+    assert "operationsCenter" in management_data
+    assert "assetDirectory" in app
+    assert "buildUnifiedAssets(skills, mcps, opsTasks)" in app
+    assert "path === '/admin/assets'" in app
+    assert "path === '/admin/pipeline'" in app
+    assert "path === '/admin/operations-center'" in app
+    assert "统一目录" in nav
+    assert "发布流水线" in nav
+    assert "运行与权限" in nav
+    assert "我的待处理事项" in workbench
+    assert "继续处理" in workbench
+    assert "统一目录" in workbench
+    assert "影响组织与风险提示" in skill_detail
+    assert "阶段状态" in skill_detail
+    assert "测试 → 提审 → 发布" in skill_detail
+    assert "当前阶段主操作" in skill_detail
+    assert "提审资料" in skill_detail
+    assert "发布检查清单" in skill_detail
+    assert "影响组织与风险提示" in mcp_detail
+    assert "阶段状态" in mcp_detail
+    assert "当前阶段主操作" in mcp_detail
+    assert "依赖影响" in mcp_detail
+    assert "发布前治理配置" in review_page
+    assert "跨对象总览" in release_page
+    assert "asset-directory-page" in css
+    assert "lifecycle-stage-strip" in css
+    assert "asset-stage-panel" in css
+    assert "workbench-task-list" in css
+
+
+def test_unified_asset_directory_prioritizes_actionable_skill_and_mcp_records():
+    management_data = read(SRC / "managementData.ts")
+    workbench = read(SRC / "pages" / "AdminWorkbenchPage.tsx")
+
+    assert "global_policy_watch" in management_data
+    assert "channel_inventory_diagnosis" in management_data
+    assert "inventory_snapshot_mcp" in management_data
+    assert "lifecycleStagePriority" in management_data
+    assert "left.type === 'mcp' ? -1 : 1" in management_data
+    assert "resolveTaskRoute" in workbench
+    assert "task.entityName === skill.name" in workbench
+    assert "task.entityName === mcp.name" in workbench
+    assert "onNavigate(resolveTaskRoute(task))" in workbench
+
+
+def test_skill_and_mcp_detail_pages_share_lifecycle_overview_component():
+    management_ui = read(SRC / "components" / "ManagementUi.tsx")
+    skill_detail = read(SRC / "pages" / "SkillDetailPage.tsx")
+    mcp_detail = read(SRC / "pages" / "McpDetailPage.tsx")
+    management_data = read(SRC / "managementData.ts")
+    doc = read(ROOT / "doc" / "广汽集团AI一体化平台_开发文档.md")
+
+    assert "LifecycleOverviewPanel" in management_ui
+    assert "summaryTitle" in management_ui
+    assert "stageSteps" in management_ui
+    assert "focusAreas" in management_ui
+    assert "LifecycleOverviewPanel" in skill_detail
+    assert "LifecycleOverviewPanel" in mcp_detail
+    assert "lifecycleStageForReleaseStatus" in management_data
+    assert "lifecycleActionByStage" in management_data
+    assert "tasksForAsset" in management_data
+    assert "tasksForAsset('skill', skill.name, skill.displayName, tasks)" in skill_detail
+    assert "lifecycleStageForReleaseStatus(skill.releaseStatus, failureSummary)" in skill_detail
+    assert "lifecycleActionByStage[currentStage]" in skill_detail
+    assert "lifecycleStageForReleaseStatus(mcp.releaseStatus, mcp.blockedBy)" in mcp_detail
+    assert "lifecycleActionByStage[currentStage]" in mcp_detail
+    assert "task.parentTaskId && directTaskIds.has(task.parentTaskId)" in management_data
+    assert "- [x] 统一目录与单详情页主流程重构" in doc
+    assert "- [x] 将 Skill/MCP 详情页的阶段逻辑抽到统一状态工具" in doc
+    assert "- [ ] 接入真实统一资产 API" in doc
+
+
 def test_workflow_stays_open_until_answer_output_then_collapses():
     bubble = read(SRC / "components" / "MessageBubble.tsx")
     thought = read(SRC / "components" / "ThoughtProcess.tsx")
@@ -99,14 +391,37 @@ def test_new_conversation_button_is_before_online_status():
 
 def test_frontend_displays_user_facing_skill_labels_and_conversation_summary():
     bubble = read(SRC / "components" / "MessageBubble.tsx")
+    message_list = read(SRC / "components" / "MessageList.tsx")
+    app = read(SRC / "App.tsx")
     history = read(SRC / "components" / "HistoryCard.tsx")
+    header = read(SRC / "components" / "ChatHeader.tsx")
     labels = read(SRC / "skillLabels.ts")
 
     assert "skillDisplayName(message.selected_skill)" in bubble
+    assert "isActionSkillMessage" in bubble
+    assert "需确认后提交" in bubble
+    assert "确认提交" in bubble
+    assert "取消" in bubble
+    assert "onAction" in bubble
+    assert "onAction={onAction}" in message_list
+    assert "onAction={sendMessage}" in app
+    assert "session.pending_action_status === 'pending_confirmation'" in history
+    assert "待确认动作" in history
+    assert "pending_action_message" in history
+    assert "session?.pending_action_status === 'pending_confirmation'" in header
+    assert "待确认动作" in header
     assert "同环比分析" in labels
     assert "内部数据与联网分析" in labels
+    assert "请假申请" in labels
     assert "session.summary || '暂无对话内容'" in history
     assert "session.last_mode" not in history
+
+
+def test_chat_input_guides_action_skill_requests_with_clear_placeholder():
+    chat_input = read(SRC / "components" / "ChatInput.tsx")
+
+    assert "placeholderText" in chat_input
+    assert "发消息、发起流程或输入 / 选择技能" in chat_input
 
 
 def test_result_renderer_builds_and_disposes_echarts_for_numeric_tables():
@@ -245,12 +560,12 @@ def test_skill_center_surfaces_enable_update_and_usage_visibility():
     library = read(SRC / "pages" / "SkillLibraryPage.tsx")
     showcase = read(SRC / "pages" / "SkillShowcasePage.tsx")
 
-    assert "启用状态" in center
-    assert "更新可用" in center
-    assert "MCP 调用热度" in center
-    assert "启用 Skill" in center
-    assert "Update" in library
-    assert "安装后需启用" in showcase
+    assert "常用能力" in center
+    assert "待更新能力" in center
+    assert "MCP 调用排行" in center
+    assert "已加入常用工作台" in center
+    assert "查看更新" in library
+    assert "组织授权生效后" in showcase
     assert "示例输入 / 输出" in showcase
 
 
@@ -263,18 +578,42 @@ def test_admin_workspace_exposes_workbench_generation_review_and_release_flow():
     workbench = read(SRC / "pages" / "AdminWorkbenchPage.tsx")
 
     assert "AdminWorkbenchPage" in app
-    assert "工作台" in admin_nav
-    assert "审核中心" in admin_nav
-    assert "发布管理" in admin_nav
+    assert "平台总览" in admin_nav
+    assert "组织与权限" in admin_nav
+    assert "平台运营" in admin_nav
     assert "AI 开发台" in skills_page
-    assert "审核中心" in skills_page
-    assert "发布管理" in skills_page
-    assert "混合输入" in skill_detail
-    assert "自动测试" in skill_detail
+    assert "组织授权" in skills_page
+    assert "平台运营" in skills_page
+    assert "描述你想做什么 Skill" in skill_detail
+    assert "AI 生成 Skill 草案" in skill_detail
+    assert "一键测试" in skill_detail
     assert "阻塞原因" in mcps_page
-    assert "MCP 子任务" in skill_detail
-    assert "待发布" in workbench
+    assert "技术预览" in skill_detail
+    assert "待处理治理事项" in workbench
     assert "自动测试：" in workbench
+
+
+def test_admin_workspace_exposes_skill_and_mcp_creation_wizards():
+    app = read(SRC / "App.tsx")
+    client = read(SRC / "api" / "client.ts")
+    skill_creator = read(SRC / "pages" / "SkillCreatorPage.tsx")
+    mcp_creator = read(SRC / "pages" / "McpCreatorPage.tsx")
+    css = read(SRC / "styles" / "app.css")
+
+    assert "path === '/admin/skills/new'" in app
+    assert "path === '/admin/mcps/new'" in app
+    assert "api.createAdminSkill" in app
+    assert "api.createAdminMcp" in app
+    assert "createAdminMcp" in client
+    assert "'/api/admin/mcps'" in client
+    assert "新建 Skill 向导" in skill_creator
+    assert "生成 Skill 草案" in skill_creator
+    assert "创建并进入编排" in skill_creator
+    assert "接入 MCP 向导" in mcp_creator
+    assert "生成接入草案" in mcp_creator
+    assert "创建并进入治理" in mcp_creator
+    assert "creator-shell" in css
+    assert "creator-preview-grid" in css
 
 
 def test_mcp_detail_surfaces_release_readiness_dependency_impact_and_publish_gate():
@@ -286,7 +625,33 @@ def test_mcp_detail_surfaces_release_readiness_dependency_impact_and_publish_gat
     assert "引用影响" in detail
     assert "发布前检查" in detail
     assert "手动发布" in detail
+    assert "recentActivities" in detail
+    assert "最近治理记录" in detail
     assert "blocked_by_dependency" in data
+
+
+def test_platform_details_surface_access_risk_gray_release_and_audit_context():
+    skill_detail = read(SRC / "pages" / "SkillDetailPage.tsx")
+    mcp_detail = read(SRC / "pages" / "McpDetailPage.tsx")
+    workbench = read(SRC / "pages" / "AdminWorkbenchPage.tsx")
+
+    assert "业务能力说明" in skill_detail
+    assert "recentActivities" in skill_detail
+    assert "提交治理" in skill_detail
+    assert "最近治理记录" in skill_detail
+    assert "生成的 Skill 草案" in skill_detail
+    assert "适用组织" in skill_detail
+    assert "数据域权限" in skill_detail
+    assert "动作权限" in skill_detail
+    assert "skillGovernanceTags[skill.name]" in skill_detail
+    assert "读写风险" in mcp_detail
+    assert "发布与灰度" in mcp_detail
+    assert "灰度范围" in mcp_detail
+    assert "审计日志" in mcp_detail
+    assert "高风险动作需审批" in mcp_detail
+    assert "platformMetrics.monthlyActiveUsers" in workbench
+    assert "platformMetrics.apiSuccessRate" in workbench
+    assert "platformMetrics.coverageOrganizations" in workbench
 
 
 def test_review_and_release_pages_exist_as_separate_operations_views():
@@ -296,26 +661,53 @@ def test_review_and_release_pages_exist_as_separate_operations_views():
 
     assert "AdminReviewPage" in app
     assert "AdminReleasePage" in app
-    assert "待审核任务" in review_page
-    assert "驳回原因" in review_page
+    assert "待处理授权事项" in review_page
+    assert "组织授权矩阵" in review_page
     assert "待发布版本" in release_page
-    assert "当前商城版本" in release_page
+    assert "当前目录版本" in release_page
     assert "手动发布" in release_page
+    assert "releaseActivities" in release_page
+    assert "最近发布动作" in release_page
 
 
-def test_skill_detail_has_generation_log_retry_and_editable_docs_workflow():
+def test_legacy_admin_review_and_release_routes_remain_compatible_aliases():
+    app = read(SRC / "App.tsx")
+    admin_nav = read(SRC / "components" / "AdminNav.tsx")
+
+    assert "path === '/admin/reviews'" in app
+    assert "path === '/admin/releases'" in app
+    assert "const isPermissionsActive" in admin_nav
+    assert "const isOperationsActive" in admin_nav
+    assert "path === '/admin/reviews'" in admin_nav
+    assert "path === '/admin/releases'" in admin_nav
+
+
+def test_skill_detail_uses_prompt_first_generation_and_test_flow():
     detail = read(SRC / "pages" / "SkillDetailPage.tsx")
     css = read(SRC / "styles" / "app.css")
 
-    assert "生成日志" in detail
-    assert "AI 自动修复重试" in detail
-    assert "关键文档" in detail
-    assert "作用说明" in detail
-    assert "流程说明" in detail
-    assert "示例输入输出" in detail
-    assert "提交审核" in detail
-    assert "generation-log" in css
-    assert "doc-editor-grid" in css
+    assert "描述你想做什么 Skill" in detail
+    assert "让大模型生成" in detail
+    assert "AI 生成 Skill 草案" in detail
+    assert "测试这个 Skill" in detail
+    assert "运行测试" in detail
+    assert "skill-prompt-builder" in css
+    assert "skill-simple-test" in css
+    assert "关键文档" not in detail
+    assert "Schema" not in detail
+
+
+def test_skill_detail_simulates_action_skill_approval_confirmation_and_rollback():
+    detail = read(SRC / "pages" / "SkillDetailPage.tsx")
+    css = read(SRC / "styles" / "app.css")
+
+    assert "isActionSkill" in detail
+    assert "审批命中" in detail
+    assert "二次确认" in detail
+    assert "失败回退" in detail
+    assert "审计输出" in detail
+    assert "test-guard-grid" in css
+    assert "test-guard-status" in css
 
 
 def test_user_skill_pages_surface_update_feedback_usage_and_version_context():
@@ -325,14 +717,26 @@ def test_user_skill_pages_surface_update_feedback_usage_and_version_context():
     css = read(SRC / "styles" / "app.css")
 
     assert "最近 30 天成功率" in center
-    assert "待更新版本" in center
+    assert "待更新能力" in center
     assert "最近使用" in center
     assert "版本信息" in showcase
-    assert "安装后反馈" in showcase
-    assert "所需能力" in showcase
-    assert "Update" in card
+    assert "开通后反馈" in showcase
+    assert "平台基础能力" in showcase
+    assert "查看更新" in card
     assert "skill-meta-board" in css
     assert "showcase-usage-grid" in css
+
+
+def test_action_skills_surface_confirmation_and_rollback_context():
+    showcase = read(SRC / "pages" / "SkillShowcasePage.tsx")
+    data = read(SRC / "managementData.ts")
+    css = read(SRC / "styles" / "app.css")
+
+    assert "请假申请" in data
+    assert "actionSkillHint" in showcase
+    assert "二次确认后提交" in showcase
+    assert "失败回退" in showcase
+    assert "showcase-action-guard" in css
 
 
 def test_release_page_surfaces_publish_confirmation_and_version_diff_context():
@@ -345,6 +749,23 @@ def test_release_page_surfaces_publish_confirmation_and_version_diff_context():
     assert "release-confirm-card" in css
 
 
+def test_release_page_surfaces_cost_failure_and_alert_operation_views():
+    release_page = read(SRC / "pages" / "AdminReleasePage.tsx")
+    css = read(SRC / "styles" / "app.css")
+
+    assert "能力运营指标" in release_page
+    assert "单次调用成本" in release_page
+    assert "失败原因分布" in release_page
+    assert "组织覆盖进展" in release_page
+    assert "告警与审计" in release_page
+    assert "最近发布动作" in release_page
+    assert "alert.level" in release_page
+    assert "platformSkillMetrics.failureReasons" in release_page
+    assert "platformOrganizationMetrics.organizationItems" in release_page
+    assert "operations-insight-grid" in css
+    assert "alert-list-card" in css
+
+
 def test_release_page_has_publish_filters_diff_preview_and_checklist():
     release_page = read(SRC / "pages" / "AdminReleasePage.tsx")
     css = read(SRC / "styles" / "app.css")
@@ -354,8 +775,66 @@ def test_release_page_has_publish_filters_diff_preview_and_checklist():
     assert "MCP 发布" in release_page
     assert "差异预览" in release_page
     assert "发布检查清单" in release_page
+    assert "onPublishTask" in release_page
     assert "release-filter-tabs" in css
     assert "release-diff-list" in css
+
+
+def test_release_flow_records_skill_and_mcp_governance_activity():
+    app = read(SRC / "App.tsx")
+    skill_detail = read(SRC / "pages" / "SkillDetailPage.tsx")
+    mcp_detail = read(SRC / "pages" / "McpDetailPage.tsx")
+    release_page = read(SRC / "pages" / "AdminReleasePage.tsx")
+    review_page = read(SRC / "pages" / "AdminReviewPage.tsx")
+    workbench = read(SRC / "pages" / "AdminWorkbenchPage.tsx")
+    drawer = read(SRC / "components" / "TaskDetailDrawer.tsx")
+    data = read(SRC / "managementData.ts")
+
+    assert "releaseActivities" in app
+    assert "appendReleaseActivity" in app
+    assert "submitSkillGovernance" in app
+    assert "approveGovernanceTask" in app
+    assert "unblockDependentTasks" in app
+    assert "runMcpHealthCheck" in app
+    assert "publishGovernanceTask" in app
+    assert "onSubmitGovernance={submitSkillGovernance}" in app
+    assert "onApproveTask={approveGovernanceTask}" in app
+    assert "onHealthCheck={runMcpHealthCheck}" in app
+    assert "onPublish={publishGovernanceTask}" in app
+    assert "onPublishTask={publishGovernanceTask}" in app
+    assert "ReleaseActivity" in data
+    assert "submitted_for_review" in data
+    assert "review_approved" in data
+    assert "published_to_catalog" in data
+    assert "health_check_passed" in data
+    assert "dependency_unblocked" in data
+    assert "recentActivities" in skill_detail
+    assert "recentActivities" in mcp_detail
+    assert "releaseActivities" in release_page
+    assert "releaseActivities" in workbench
+    assert "releaseActionLabel" in release_page
+    assert "releaseActionLabel" in workbench
+    assert "TaskDetailDrawer" in release_page
+    assert "TaskDetailDrawer" in workbench
+    assert "timeline-activity-button" in release_page
+    assert "timeline-activity-button" in workbench
+    assert "task-card-clickable" in release_page
+    assert "task-card-clickable" in workbench
+    assert "任务详情抽屉" in drawer
+    assert "状态迁移原因" in drawer
+    assert "最近动作" in drawer
+    assert "审核通过，进入待发布" in review_page
+    assert "onApproveTask(task)" in review_page
+    assert "setOpsTasks" in app
+    assert "upsertSkillReviewTask" in app
+    assert "api.listGovernanceTasks()" in app
+    assert "api.listReleaseActivities()" in app
+    assert "api.submitSkillGovernance(skill.name)" in app
+    assert "api.approveGovernanceTask(task.id)" in app
+    assert "api.publishGovernanceTask(taskOrEntity.id)" in app
+    assert "api.runAdminMcpHealthCheck(mcp.name)" in app
+    assert "governanceTasksFromApi" in app
+    assert "releaseActivitiesFromApi" in app
 
 
 def test_skill_cards_and_store_surface_version_and_update_badges():
@@ -385,6 +864,25 @@ def test_management_data_models_parent_child_dependency_release_states():
     assert "transform: rotate(90deg);" in css
 
 
+def test_platform_prototype_data_models_support_governance_metrics_and_access():
+    data = read(SRC / "managementData.ts")
+    review_page = read(SRC / "pages" / "AdminReviewPage.tsx")
+    release_page = read(SRC / "pages" / "AdminReleasePage.tsx")
+    skills_page = read(SRC / "pages" / "SkillsPage.tsx")
+    mcps_page = read(SRC / "pages" / "McpsPage.tsx")
+
+    assert "organizationAccessProfiles" in data
+    assert "platformMetrics" in data
+    assert "skillGovernanceTags" in data
+    assert "organizationName" in data
+    assert "coverageOrganizations" in data
+    assert "applicableOrganizations" in data
+    assert "organizationProfiles.map" in review_page
+    assert "platformMetrics.monthlyActiveUsers" in release_page
+    assert "skillGovernanceTags[skill.name]" in skills_page
+    assert "读写属性" in mcps_page
+
+
 def test_workflow_step_status_and_chevron_share_aligned_action_area():
     thought_step = read(SRC / "components" / "ThoughtStep.tsx")
     css = read(SRC / "styles" / "app.css")
@@ -399,11 +897,11 @@ def test_workflow_step_status_and_chevron_share_aligned_action_area():
 def test_skill_center_focuses_on_installed_workspace_and_empty_state_guidance():
     page = read(SRC / "pages" / "SkillCenterPage.tsx")
 
-    assert "浏览 Skill 商店" in page
-    assert "已安装 Skill" in page
+    assert "浏览能力目录" in page
+    assert "已开通能力" in page
     assert "全部 Skill" not in page
-    assert "你还没有安装任何 Skill" in page
-    assert "前往 Skill 商店" in page
+    assert "你还没有开通任何能力" in page
+    assert "前往能力目录" in page
     assert "最近使用" in page
 
 
@@ -411,9 +909,13 @@ def test_skill_library_handles_install_feedback_without_reusing_my_skills_layout
     page = read(SRC / "pages" / "SkillLibraryPage.tsx")
     app = read(SRC / "App.tsx")
 
-    assert "精选推荐" in page
-    assert "全部 Skill" in page
-    assert "已安装，可以立即打开，或返回“我的 Skill”继续使用" in page
+    assert "重点推荐" in page
+    assert "全部能力" in page
+    assert "已开通" in page
+    assert "未开通" in page
+    assert "已安装" not in page
+    assert "未安装" not in page
+    assert "能力已开通，可以立即查看，或返回“能力中心”继续使用" in page
     assert "清空筛选" in page
     assert "recentlyInstalledSkillName" in app
     assert "setRecentlyInstalledSkillName(name)" in app
@@ -422,8 +924,8 @@ def test_skill_library_handles_install_feedback_without_reusing_my_skills_layout
 def test_showcase_page_returns_to_library_and_offers_install_decision_flow():
     page = read(SRC / "pages" / "SkillShowcasePage.tsx")
 
-    assert "← 返回 Skill 商店" in page
-    assert "安装 Skill" in page
+    assert "← 返回能力目录" in page
+    assert "申请开通" in page
     assert "立即体验" in page
     assert "带着示例去提问" in page
     assert "这个 Skill 能为你做什么" in page
@@ -460,12 +962,29 @@ def test_workspace_has_three_primary_pages_and_history_routing():
     routing = read(SRC / "useWorkspaceRoute.ts")
 
     assert "<AppShell" in app
-    assert "智能问答" in nav
-    assert "我的 Skill" in nav
-    assert "系统管理" in nav
+    assert "AI 助手" in nav
+    assert "能力中心" in nav
+    assert "平台治理" in nav
     assert "window.history.pushState" in routing
     assert "popstate" in routing
     assert "prototype-mode" in shell
+
+
+def test_platform_shell_uses_group_ai_platform_branding():
+    index = read(ROOT / "web_frontend" / "index.html")
+    header = read(SRC / "components" / "ChatHeader.tsx")
+    nav = read(SRC / "components" / "GlobalNav.tsx")
+    message_list = read(SRC / "components" / "MessageList.tsx")
+
+    assert "<title>广汽集团 AI 一体化平台</title>" in index
+    assert "广汽集团 AI 助手" in header
+    assert "统一 AI 门户" in header
+    assert "AI 一体化平台" in nav
+    assert "能力工作台" in nav
+    assert "你好，我是广汽集团 AI 助手" in message_list
+    assert "广汽国际 AI 助手" not in index
+    assert "广汽国际 AI 助手" not in header
+    assert "<strong>ChatBI</strong>" not in nav
 
 
 def test_skill_management_has_search_workflow_schema_and_test_console():
@@ -473,14 +992,14 @@ def test_skill_management_has_search_workflow_schema_and_test_console():
     detail = read(SRC / "pages" / "SkillDetailPage.tsx")
     data = read(SRC / "managementData.ts")
 
-    assert "Skill 管理" in listing
+    assert "Skill 编排" in listing
     assert "搜索 Skill" in listing
     assert "新建 Skill" in listing
     assert "skill-card" in listing
-    assert "工作流" in detail
-    assert "Schema" in detail
-    assert "测试" in detail
-    assert "添加步骤" in detail
+    assert "技术预览" in detail
+    assert "生成的 Skill 草案" in detail
+    assert "测试这个 Skill" in detail
+    assert "添加步骤" not in detail
     assert "运行测试" in detail
     assert "data_web_compare_analysis" in data
     assert "mcpTools" in data
@@ -491,7 +1010,7 @@ def test_mcp_management_has_health_checks_masked_config_and_dependencies():
     detail = read(SRC / "pages" / "McpDetailPage.tsx")
     data = read(SRC / "managementData.ts")
 
-    assert "MCP 管理" in listing
+    assert "MCP 治理" in listing
     assert "全部健康检查" in listing
     assert "mcp-table" in listing
     assert "连接与配置" in detail
@@ -522,17 +1041,17 @@ def test_skill_center_is_user_facing_installed_skill_home_with_store_entry():
     library = read(SRC / "pages" / "SkillLibraryPage.tsx")
     showcase = read(SRC / "pages" / "SkillShowcasePage.tsx")
 
-    assert "我的 Skill" in center
-    assert "浏览 Skill 商店" in center
-    assert "<h1>Skill 商店</h1>" not in center
+    assert "能力中心" in center
+    assert "浏览能力目录" in center
+    assert "<h1>能力目录</h1>" not in center
     assert "精选推荐" not in center
     assert "热门 Skill" not in center
-    assert "Skill 商店" in library
-    assert "精选推荐" in library
+    assert "能力目录" in library
+    assert "重点推荐" in library
     assert "这个 Skill 能为你做什么" in showcase
     assert "在真实问答页面中，它会这样工作" in showcase
     assert "可以直接这样问" in showcase
-    assert "安装前检查" in showcase
+    assert "开通前检查" in showcase
     assert "立即体验" in showcase
     assert "chat-demo-thinking" in showcase
     assert "MCP 依赖" not in showcase
@@ -546,10 +1065,10 @@ def test_skill_and_mcp_configuration_live_under_admin_routes():
     skill_detail = read(SRC / "pages" / "SkillDetailPage.tsx")
     mcp_detail = read(SRC / "pages" / "McpDetailPage.tsx")
 
-    assert "系统管理" in nav
+    assert "平台治理" in nav
     assert "/admin/skills" in nav
-    assert "Skill 管理" in admin
-    assert "MCP 管理" in admin
+    assert "Skill 编排" in admin
+    assert "MCP 治理" in admin
     assert "path === '/admin/skills'" in app
     assert "path === '/admin/mcps'" in app
     assert "onNavigate(`/admin/mcps/${mcpName}`)" in skill_detail
@@ -562,11 +1081,11 @@ def test_skill_store_uses_app_store_style_sections_and_compact_install_rows():
     nav = read(SRC / "components" / "GlobalNav.tsx")
     css = read(SRC / "styles" / "app.css")
 
-    assert "我的 Skill" in center
+    assert "能力中心" in center
     assert "SkillCard" in center
-    assert "Skill 商店" in library
-    assert "精选推荐" in library
-    assert "我的 Skill" in nav
+    assert "能力目录" in library
+    assert "重点推荐" in library
+    assert "能力中心" in nav
     assert ".skill-store-title h1" in css
     assert "font-size: 38px;" in css
     assert ".skill-app-row" in css
@@ -601,10 +1120,10 @@ def test_skill_store_links_to_library_and_only_lists_installed_skills_at_bottom(
     center = read(SRC / "pages" / "SkillCenterPage.tsx")
     css = read(SRC / "styles" / "app.css")
 
-    assert "浏览 Skill 商店" in center
+    assert "浏览能力目录" in center
     assert "onNavigate('/skills/library')" in center
-    assert "我的 Skill" in center
-    assert "已安装到 ChatBI 助手" in center
+    assert "能力中心" in center
+    assert "能力工作台" in center
     assert "const installedSkills" in center
     assert "installedSkills.filter" in center
     assert "store-filter-row" not in center
@@ -638,7 +1157,7 @@ def test_skill_store_keeps_discovery_simple_and_installed_skill_management_large
     assert "market-discovery-bar" not in center
     assert "market-category-grid" not in center
     assert 'placeholder="搜索名称、场景或能力"' not in center
-    assert 'placeholder="搜索已安装 Skill"' in center
+    assert 'placeholder="搜索已开通能力"' in center
     assert "setSort" in center
     assert "my-skill-toolbar" in css
     assert ".my-skills-section" in css
@@ -651,10 +1170,10 @@ def test_skill_library_has_workflow_cards_search_and_filters():
 
     assert "path === '/skills/library'" in app
     assert "SkillLibraryPage" in app
-    assert "Skill 商店" in library
-    assert "精选推荐" in library
+    assert "能力目录" in library
+    assert "重点推荐" in library
     assert "热门 Skill" not in library
-    assert 'placeholder="搜索 Skill 名称、用途或场景"' in library
+    assert 'placeholder="搜索能力名称、用途或业务场景"' in library
     assert "SkillCard" in library
     assert "library-filter-bar" in css
     assert ".library-skill-grid" in css
@@ -682,7 +1201,7 @@ def test_my_skill_home_shows_usage_visualization_and_four_column_cards():
     assert "使用次数" in center
     assert "usage-chart" in center
     assert "usage-rank-fill" in center
-    assert "已安装 Skill" in center
+    assert "已开通能力" in center
     assert "installedSkills.length" in center
     assert ".my-skill-home .all-skill-list" in css
     assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in css
@@ -709,8 +1228,8 @@ def test_skill_cards_are_shared_with_consistent_install_status_and_interaction()
 
     assert "SkillCard" in center
     assert "SkillCard" in library
-    assert "已安装" in card
-    assert "未安装" in card
+    assert "已开通" in card
+    assert "未开通" in card
     assert "skill-status ${" in card
     assert "'installed' : 'uninstalled'" in card
     assert ".skill-status.installed" in css
@@ -728,7 +1247,7 @@ def test_usage_chart_is_ranked_horizontal_and_store_filters_are_compact():
     assert "<span>能力分类</span>" not in library
     assert "<span>安装状态</span>" not in library
     assert "全部分类" in library
-    assert "全部安装状态" in library
+    assert "全部开通状态" in library
     assert ".library-filter-bar label > span" not in css
 
 
@@ -736,11 +1255,15 @@ def test_skill_showcase_uses_chatbi_demo_and_actionable_requirements():
     showcase = read(SRC / "pages" / "SkillShowcasePage.tsx")
     css = read(SRC / "styles" / "app.css")
 
+    assert "安装" not in showcase
+    assert "启用" not in showcase
+    assert "AI 助手" in showcase
+    assert "授权生效后自动参与执行" in showcase
     assert "chat-demo-window" in showcase
     assert "chat-demo-message user" in showcase
     assert "chat-demo-thinking" in showcase
     assert "chat-demo-result" in showcase
-    assert "安装前检查" in showcase
+    assert "开通前检查" in showcase
     assert "需要你做什么" in showcase
     assert "requirement-check-card" in showcase
     assert ".chat-demo-window" in css

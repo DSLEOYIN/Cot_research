@@ -10,6 +10,7 @@ type Props = {
 
 export function ChatInput({ disabled, webSearchEnabled, onWebSearchChange, onSend, initialText = '' }: Props) {
   const [text, setText] = useState('');
+  const placeholderText = '发消息、发起流程或输入 / 选择技能';
 
   useEffect(() => {
     if (initialText) setText(initialText);
@@ -30,7 +31,7 @@ export function ChatInput({ disabled, webSearchEnabled, onWebSearchChange, onSen
             value={text}
             disabled={disabled}
             onChange={(event) => setText(event.target.value)}
-            placeholder="发消息或输入 / 选择技能"
+            placeholder={placeholderText}
           />
           <button className="send-btn" type="submit" disabled={disabled || !text.trim()} title="发送" aria-label="发送消息">
             <svg viewBox="0 0 24 24" aria-hidden="true">

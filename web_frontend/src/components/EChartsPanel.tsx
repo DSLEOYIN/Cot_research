@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import * as echarts from 'echarts';
+import type { ECharts } from 'echarts';
 
 export type ChartData = {
   categories: string[];
@@ -15,20 +15,58 @@ type Props = {
 
 export function EChartsPanel({ data }: Props) {
   const chartElement = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<echarts.ECharts | null>(null);
+  const chartRef = useRef<ECharts | null>(null);
   const dataKey = JSON.stringify(data);
 
   useEffect(() => {
-    if (!chartElement.current) return;
+    if (!chartElement.current) return undefined;
 
-    const chart = echarts.init(chartElement.current);
-    chartRef.current = chart;
-    const resizeObserver = new ResizeObserver(() => chart.resize());
-    resizeObserver.observe(chartElement.current);
+    let disposed = false;
+    let resizeObserver: ResizeObserver | null = null;
+    let mountedElement: HTMLDivElement | null = chartElement.current;
+
+    void import('echarts').then((echarts) => {
+      if (disposed || !mountedElement) return;
+      const chart = echarts.init(mountedElement);
+      chartRef.current = chart;
+      resizeObserver = new ResizeObserver(() => chart.resize());
+      resizeObserver.observe(mountedElement);
+      chart.setOption({
+        animationDuration: 500,
+        color: ['#111111', '#d63b32', '#64748b', '#f59e0b'],
+        grid: { left: 18, right: 18, top: 48, bottom: 24, containLabel: true },
+        legend: { top: 8, right: 12, textStyle: { color: '#667085', fontSize: 11 } },
+        tooltip: { trigger: 'axis' },
+        xAxis: {
+          type: 'category',
+          data: data.categories,
+          axisTick: { show: false },
+          axisLine: { lineStyle: { color: '#d9dee6' } },
+          axisLabel: { color: '#667085', fontSize: 11 },
+        },
+        yAxis: {
+          type: 'value',
+          splitLine: { lineStyle: { color: '#edf1f7' } },
+          axisLabel: { color: '#8f97a5', fontSize: 11 },
+        },
+        series: data.series.map((series, index) => ({
+          name: series.name,
+          type: index === 0 ? 'bar' : 'line',
+          data: series.values,
+          barMaxWidth: 36,
+          smooth: true,
+          symbolSize: 6,
+        })),
+      });
+    });
+
     return () => {
-      resizeObserver.disconnect();
-      chart.dispose();
+      disposed = true;
+      resizeObserver?.disconnect();
+      const chart = chartRef.current;
+      if (chart) chart.dispose();
       chartRef.current = null;
+      mountedElement = null;
     };
   }, []);
 

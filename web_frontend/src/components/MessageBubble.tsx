@@ -6,14 +6,17 @@ import { ThoughtProcess } from './ThoughtProcess';
 
 type Props = {
   message: ChatMessage;
+  onAction: (text: string) => void;
 };
 
-export function MessageBubble({ message }: Props) {
+export function MessageBubble({ message, onAction }: Props) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === 'user';
   const answerStarted = Boolean(message.answer_started);
   const shouldCollapseThoughts = answerStarted || !message.is_streaming;
   const displayContent = message.content;
+  const isActionSkillMessage = message.selected_skill === 'leave_request';
+  const showsPendingConfirmation = isActionSkillMessage && message.content.includes('需确认后提交');
 
   async function copyMessage() {
     try {
@@ -40,6 +43,14 @@ export function MessageBubble({ message }: Props) {
       <div>
         <div className={`msg-content ${!isUser && message.steps?.length ? 'workflow-content' : ''}`}>
           {!isUser && message.selected_skill && <div className="msg-mode-badge thinking">{skillDisplayName(message.selected_skill)}</div>}
+          {!isUser && isActionSkillMessage && <div className="message-action-guard">
+            <strong>需确认后提交</strong>
+            <span>这是动作型能力。系统会先展示审批路径和影响范围，确认后才会继续提交。</span>
+            {showsPendingConfirmation && <div className="message-action-buttons">
+              <button type="button" className="primary-action compact-action" onClick={() => onAction('确认提交')}>确认提交</button>
+              <button type="button" className="secondary-action compact-action" onClick={() => onAction('取消')}>取消</button>
+            </div>}
+          </div>}
           {!isUser && message.steps?.length ? <ThoughtProcess steps={message.steps} collapseSignal={shouldCollapseThoughts} /> : null}
           <ResultRenderer content={displayContent} />
         </div>

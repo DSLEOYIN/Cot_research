@@ -1,8 +1,10 @@
-# Cot Research ChatBI PoC
+# 广汽集团 AI 一体化平台原型
 
-一个基于 Skill + MCP 双层架构的 ChatBI PoC。当前开发基线优先保证三件事：
+一个基于统一 AI 门户、Skill 编排和 MCP 原子能力底座的集团 AI 一体化平台原型。当前开发基线优先保证四件事：
 
 - 可以在无 API Key、无数据库的环境中使用 mock 模式完整演示。
+- 前端信息架构覆盖 AI 助手、能力中心、平台治理三类工作区。
+- 后端提供能力、组织权限、Skill/MCP 治理和运营指标的第一阶段 mock API。
 - 真实凭据不写入源码，统一通过 `.env` 读取。
 - 关键 MCP 失败时 workflow 立即中断，并返回清晰错误。
 
@@ -23,7 +25,7 @@ $env:APP_MODE = "mock"
 streamlit run streamlit_langgraph.py
 ```
 
-生产 Web 入口可通过 FastAPI + Vite 启动：
+Web 入口可通过 FastAPI + Vite 启动：
 
 ```powershell
 $env:APP_MODE = "mock"
@@ -41,6 +43,14 @@ npm run dev
 - 本月中东公司销量多少？
 - 本月终端量同比去年怎么样？
 - 汽车保养一般多少公里做一次？
+
+平台治理 mock API 可直接验证：
+
+```powershell
+curl http://127.0.0.1:8001/api/capabilities/data_query
+curl http://127.0.0.1:8001/api/organizations/gac-international/permissions
+curl http://127.0.0.1:8001/api/admin/metrics/overview
+```
 
 ## Real 模式
 
@@ -118,6 +128,7 @@ pytest -q
 
 当前测试覆盖：
 
+- 平台能力、组织权限、Skill/MCP 治理和运营指标 mock API
 - MCP 标准返回契约
 - mock 模式三条端到端链路
 - real 模式缺配置时的 workflow 中断
@@ -126,9 +137,9 @@ pytest -q
 ## 项目结构
 
 - `langgraph_cot.py`: Skill 路由与 SOP workflow 执行器。
-- `api_server.py`: 生产 Web 前端使用的 FastAPI API 与 SSE 入口。
+- `api_server.py`: 统一 AI 门户与平台治理原型使用的 FastAPI API 与 SSE 入口。
 - `chat_repository.py`: SQLite 会话、消息、思考步骤持久化。
-- `web_frontend/`: React 生产 Web 前端工程，复用原型助手放大态视觉资源。
+- `web_frontend/`: React 平台前端工程，包含 AI 助手、能力中心和平台治理工作区。
 - `app_config.py`: 统一配置读取入口。
 - `scripts/check_mcps.py`: MCP 健康检查脚本。
 - `skills/`: 业务 SOP 层。

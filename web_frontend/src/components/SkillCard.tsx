@@ -16,7 +16,7 @@ const categoryFor = (skill: SkillDefinition) => {
 
 export function SkillCard({ skill, onNavigate, onInstall, onToggleEnable, highlight = false }: Props) {
   const open = () => onNavigate(`/skills/${skill.name}`);
-  const actionLabel = skill.installed ? (skill.updateAvailable ? 'Update' : '打开') : '获取';
+  const actionLabel = skill.installed ? (skill.updateAvailable ? '查看更新' : '查看') : '申请开通';
   const isManagedInstalled = Boolean(onToggleEnable && skill.installed);
   const showInlineAction = isManagedInstalled || Boolean(onInstall);
   return <article className={`library-skill-card ${highlight ? 'recently-installed' : ''}`} onClick={open}>
@@ -29,10 +29,10 @@ export function SkillCard({ skill, onNavigate, onInstall, onToggleEnable, highli
         </div>
       </div>
       <div className="skill-card-status-zone">
-        <i className={`skill-status ${skill.installed ? 'installed' : 'uninstalled'}`}>{skill.installed ? (skill.updateAvailable ? '更新可用' : '已安装') : '未安装'}</i>
+        <i className={`skill-status ${skill.installed ? 'installed' : 'uninstalled'}`}>{skill.installed ? (skill.updateAvailable ? '待更新' : '已开通') : '未开通'}</i>
         {isManagedInstalled ? <button
           type="button"
-          aria-label={skill.enabledForUser ? '停用 Skill' : '启用 Skill'}
+          aria-label={skill.enabledForUser ? '移出常用能力' : '加入常用能力'}
           aria-pressed={skill.enabledForUser}
           className={`skill-toggle ${skill.enabledForUser ? 'on' : 'off'}`}
           onClick={(event) => {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { OperationsTask, SkillDefinition, statusLabel } from '../managementData';
+import { OperationsTask, SkillDefinition, skillGovernanceTags, statusLabel } from '../managementData';
 import { MetricStrip, PageHeader, StatusBadge } from '../components/ManagementUi';
 
 type Props = {
@@ -22,9 +22,9 @@ export function SkillsPage({ skills, tasks, onNavigate, onCreate }: Props) {
 
   return <section className="management-page">
     <PageHeader
-      eyebrow="Skill Ops"
-      title="Skill 管理"
-      description="用混合输入驱动 AI 开发台生成 Skill 草案，再进入自动测试、审核中心和发布管理。"
+      eyebrow="Skill Orchestration"
+      title="Skill 编排"
+      description="把集团业务需求沉淀为 Skill，统一定义场景、流程、依赖 MCP、适用组织和测试状态。"
       actions={<button className="primary-action" type="button" onClick={onCreate}>＋ 新建 Skill</button>}
     />
     <MetricStrip items={[
@@ -37,17 +37,17 @@ export function SkillsPage({ skills, tasks, onNavigate, onCreate }: Props) {
       <article className="ops-banner-card">
         <span>CREATE</span>
         <h2>AI 开发台</h2>
-        <p>名称、目标、适用场景、期望输出加上自然语言命令，系统自动按规范生成 Skill。</p>
+        <p>名称、目标、适用组织、业务场景和期望输出加上自然语言命令，系统自动按规范生成 Skill 草案。</p>
       </article>
       <article className="ops-banner-card">
-        <span>REVIEW</span>
-        <h2>审核中心</h2>
-        <p>重点审功能、作用、流程、依赖 MCP 和示例输入输出，驳回后可回流编辑。</p>
+        <span>GOVERN</span>
+        <h2>组织授权</h2>
+        <p>在能力完成测试后，为不同子公司、部门和角色定义开通范围、数据域权限和动作授权。</p>
       </article>
       <article className="ops-banner-card">
-        <span>RELEASE</span>
-        <h2>发布管理</h2>
-        <p>审核通过不自动上架，需手动发布；同名 Skill 仅一个版本在商城可见。</p>
+        <span>OPERATE</span>
+        <h2>平台运营</h2>
+        <p>关注使用热度、成功率、组织覆盖和异常情况，确保能力真正被集团业务使用起来。</p>
       </article>
     </section>
     <div className="filter-bar">
@@ -61,8 +61,15 @@ export function SkillsPage({ skills, tasks, onNavigate, onCreate }: Props) {
         <div className="skill-title"><h2>{skill.displayName}</h2><code>{skill.name}</code></div>
         <p>{skill.description}</p>
         <div className="tag-row"><span>{skill.category}</span><span>{skill.outputType}</span><span>{statusLabel[skill.status]}</span></div>
+        {skillGovernanceTags[skill.name] && <div className="tag-row">
+          <span>{skillGovernanceTags[skill.name].businessDomain}</span>
+          <span>风险：{skillGovernanceTags[skill.name].riskLevel}</span>
+          <span>{skillGovernanceTags[skill.name].requiresApproval ? '需组织审批' : '标准授权'}</span>
+          <span>{skillGovernanceTags[skill.name].writesData ? '包含写入动作' : '只读能力'}</span>
+        </div>}
+        {skillGovernanceTags[skill.name] && <p className="skill-card-orgs">适用组织：{skillGovernanceTags[skill.name].applicableOrganizations.join(' / ')}</p>}
         <div className="dependency-row">{skill.mcpTools.slice(0, 4).map((mcp) => <code key={mcp}>{mcp}</code>)}{skill.mcpTools.length > 4 && <code>+{skill.mcpTools.length - 4}</code>}</div>
-        <footer><span>{skill.steps.length} 个步骤</span><span>{skill.releaseStatus === 'published' ? '商城可见' : '待处理版本'}</span><b>进入任务详情 →</b></footer>
+        <footer><span>{skill.steps.length} 个步骤</span><span>{skill.releaseStatus === 'published' ? '已纳入集团能力目录' : '待处理版本'}</span><b>进入编排详情 →</b></footer>
       </article>)}
     </div>
   </section>;

@@ -14,6 +14,9 @@ function formatTime(value: string) {
 }
 
 export function HistoryCard({ session, active, onSelect, onRename, onDelete, onTogglePin }: Props) {
+  const hasPendingAction = session.pending_action_status === 'pending_confirmation';
+  const summaryText = hasPendingAction ? (session.pending_action_message || session.summary || '待确认动作') : (session.summary || '暂无对话内容');
+
   return (
     <div className="history-card-item">
       <button className={`history-card ${active ? 'active' : ''}`} type="button" onClick={() => onSelect(session.id)}>
@@ -21,10 +24,11 @@ export function HistoryCard({ session, active, onSelect, onRename, onDelete, onT
           <span className="history-card-title-wrap">
             {session.is_pinned && <img className="history-card-pin-indicator" src="/assets/icons/history-pin.svg" alt="" />}
             <span className="history-card-title">{session.title}</span>
+            {hasPendingAction && <span className="history-card-status">待确认动作</span>}
           </span>
           <span className="history-card-time">{formatTime(session.updated_at)}</span>
         </div>
-        <span className="history-card-content">{session.summary || '暂无对话内容'}</span>
+        <span className="history-card-content">{summaryText}</span>
       </button>
       <div className="history-card-actions">
         <button className="history-card-action" type="button" title={session.is_pinned ? '取消置顶' : '置顶'} onClick={() => onTogglePin(session)}>

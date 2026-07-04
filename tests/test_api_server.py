@@ -17,6 +17,543 @@ def test_session_api_creates_and_lists_sessions(tmp_path, monkeypatch):
     assert listed[0]["id"] == created["id"]
 
 
+def test_platform_prototype_api_exposes_capabilities_permissions_and_metrics(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    openapi = client.get("/openapi.json")
+    capabilities = client.get("/api/capabilities")
+    data_query = client.get("/api/capabilities/data_query")
+    my_capabilities = client.get("/api/users/me/capabilities")
+    organizations = client.get("/api/organizations")
+    org_permissions = client.get("/api/organizations/gac-international/permissions")
+    skills = client.get("/api/admin/skills")
+    skill = client.get("/api/admin/skills/data_query")
+    mcps = client.get("/api/admin/mcps")
+    mcp = client.get("/api/admin/mcps/sql_executor")
+    governance_tasks = client.get("/api/admin/governance/tasks")
+    release_activities = client.get("/api/admin/governance/activities")
+    metrics = client.get("/api/admin/metrics/overview")
+    skill_metrics = client.get("/api/admin/metrics/skills")
+    organization_metrics = client.get("/api/admin/metrics/organizations")
+    alerts = client.get("/api/admin/alerts")
+    action_governance = client.get("/api/admin/action-governance")
+
+    assert openapi.status_code == 200
+    assert openapi.json()["info"]["title"] == "广汽集团 AI 一体化平台 API"
+    assert capabilities.status_code == 200
+    assert data_query.status_code == 200
+    assert my_capabilities.status_code == 200
+    assert organizations.status_code == 200
+    assert org_permissions.status_code == 200
+    assert skills.status_code == 200
+    assert skill.status_code == 200
+    assert mcps.status_code == 200
+    assert mcp.status_code == 200
+    assert governance_tasks.status_code == 200
+    assert release_activities.status_code == 200
+    assert metrics.status_code == 200
+    assert skill_metrics.status_code == 200
+    assert organization_metrics.status_code == 200
+    assert alerts.status_code == 200
+    assert action_governance.status_code == 200
+    assert data_query.json()["displayName"] == "数据查询与分析"
+    assert org_permissions.json()["organizationName"] == "广汽国际"
+    assert governance_tasks.json()[0]["title"]
+    assert release_activities.json()[0]["action"]
+    assert "monthlyActiveUsers" in metrics.json()
+    assert "failureReasons" in skill_metrics.json()
+    assert "organizationItems" in organization_metrics.json()
+    assert alerts.json()[0]["message"]
+    assert action_governance.json()[0]["approvalStatus"]
+
+
+def test_platform_prototype_api_supports_governance_mutation_dry_runs(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    permission_update = client.patch(
+        "/api/organizations/gac-international/permissions",
+        json={"approvalMode": "平台管理员复核"},
+    )
+    role_update = client.patch(
+        "/api/admin/roles/sales-analyst",
+        json={"openSkills": ["数据查询与分析", "请假申请"], "actionPermissions": ["查询", "下载", "提交"]},
+    )
+    skill_test = client.post(
+        "/api/admin/skills/data_query/test",
+        json={"query": "本月中东公司销量多少？"},
+    )
+    mcp_update = client.patch(
+        "/api/admin/mcps/sql_executor",
+        json={"releaseStatus": "testing"},
+    )
+    mcp_health = client.post("/api/admin/mcps/sql_executor/health-check")
+
+    assert permission_update.status_code == 200
+    assert permission_update.json()["approvalMode"] == "平台管理员复核"
+    assert role_update.status_code == 200
+    assert role_update.json()["openSkills"] == ["数据查询与分析", "请假申请"]
+    assert skill_test.status_code == 200
+    assert skill_test.json()["status"] == "passed"
+    assert mcp_update.status_code == 200
+    assert mcp_update.json()["releaseStatus"] == "testing"
+    assert mcp_health.status_code == 200
+    assert mcp_health.json()["health"] == "healthy"
+
+
+def test_role_template_updates_persist_and_change_effective_permissions(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    db_path = tmp_path / "chat.db"
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    updated_role = client.patch(
+        "/api/admin/roles/sales-analyst",
+        json={
+            "openSkills": ["数据查询与分析", "请假申请"],
+            "dataDomains": ["销售", "库存", "人力"],
+            "actionPermissions": ["查询", "下载", "提交"],
+        },
+    )
+    account = client.get("/api/admin/accounts/u-sales-chen/permissions")
+
+    restarted_app = create_app(db_path=db_path)
+    restarted_client = TestClient(restarted_app)
+    fetched_role = restarted_client.get("/api/admin/roles")
+    restarted_account = restarted_client.get("/api/admin/accounts/u-sales-chen/permissions")
+
+    assert updated_role.status_code == 200
+    assert "请假申请" in account.json()["effectiveSkills"]
+    assert "提交" in account.json()["effectiveActionPermissions"]
+    sales_role = next(role for role in fetched_role.json() if role["id"] == "sales-analyst")
+    assert "请假申请" in sales_role["openSkills"]
+    assert "人力" in sales_role["dataDomains"]
+    assert "请假申请" in restarted_account.json()["effectiveSkills"]
+
+
+def test_permission_audit_log_records_role_organization_and_account_changes(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    client.patch("/api/admin/roles/sales-analyst", json={"actionPermissions": ["查询", "下载", "提交"]})
+    client.patch("/api/organizations/gac-international/permissions", json={"approvalMode": "平台管理员复核"})
+    client.patch("/api/admin/accounts/u-sales-chen/permissions", json={"allowedSkills": ["请假申请"]})
+
+    audit_logs = client.get("/api/admin/audit/permissions")
+    account = client.get("/api/admin/accounts/u-sales-chen/permissions")
+
+    assert audit_logs.status_code == 200
+    assert len(audit_logs.json()) >= 3
+    assert audit_logs.json()[0]["entityType"] in {"account", "organization", "role"}
+    assert audit_logs.json()[0]["changeSummary"]
+    assert account.json()["permissionSources"]["organization"]
+    assert account.json()["permissionSources"]["roles"]
+    assert account.json()["permissionSources"]["accountOverride"]
+
+
+def test_platform_prototype_api_supports_creating_skill_and_mcp_drafts(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    skill_created = client.post(
+        "/api/admin/skills",
+        json={
+            "name": "global_policy_watch_draft",
+            "displayName": "海外政策追踪草案",
+            "category": "政策分析",
+        },
+    )
+    mcp_created = client.post(
+        "/api/admin/mcps",
+        json={
+            "name": "policy_feed_connector",
+            "displayName": "政策源连接器",
+            "category": "Retrieval",
+        },
+    )
+
+    assert skill_created.status_code == 200
+    assert skill_created.json()["status"] == "draft_created"
+    assert skill_created.json()["name"] == "global_policy_watch_draft"
+    assert mcp_created.status_code == 200
+    assert mcp_created.json()["status"] == "draft_created"
+    assert mcp_created.json()["name"] == "policy_feed_connector"
+
+
+def test_admin_skill_create_and_update_persist_across_app_restarts(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    db_path = tmp_path / "registry.db"
+    first_app = create_app(db_path=db_path)
+    first_client = TestClient(first_app)
+
+    created = first_client.post(
+        "/api/admin/skills",
+        json={
+            "name": "leave_assistant",
+            "displayName": "请假助手",
+            "category": "流程助手",
+            "description": "提交请假流程前的表单补齐与确认。",
+            "outputType": "流程结果",
+            "applicableOrganizations": ["广汽乘用车"],
+            "status": "draft",
+            "businessDomain": "人力流程",
+            "riskLevel": "高",
+            "requiresApproval": True,
+            "writesData": True,
+            "mcpTools": ["llm"],
+        },
+    )
+    updated = first_client.patch(
+        "/api/admin/skills/leave_assistant",
+        json={
+            "description": "更新后的描述",
+            "mcpTools": ["llm", "knowledge_retrieval"],
+        },
+    )
+
+    assert created.status_code == 200
+    assert updated.status_code == 200
+
+    restarted_app = create_app(db_path=db_path)
+    restarted_client = TestClient(restarted_app)
+    fetched = restarted_client.get("/api/admin/skills/leave_assistant")
+
+    assert fetched.status_code == 200
+    assert fetched.json()["description"] == "更新后的描述"
+    assert fetched.json()["mcpTools"] == ["llm", "knowledge_retrieval"]
+
+
+def test_admin_mcp_create_and_health_check_persist_across_app_restarts(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    db_path = tmp_path / "registry.db"
+    first_app = create_app(db_path=db_path)
+    first_client = TestClient(first_app)
+
+    created = first_client.post(
+        "/api/admin/mcps",
+        json={
+            "name": "oa_gateway",
+            "displayName": "OA 网关",
+            "category": "Workflow",
+            "description": "连接 OA 审批系统。",
+            "readWriteRisk": "动作型写入能力，需审批和审计",
+            "health": "unknown",
+            "releaseStatus": "draft",
+            "referencedBy": [],
+        },
+    )
+    checked = first_client.post("/api/admin/mcps/oa_gateway/health-check")
+
+    assert created.status_code == 200
+    assert checked.status_code == 200
+
+    restarted_app = create_app(db_path=db_path)
+    restarted_client = TestClient(restarted_app)
+    fetched = restarted_client.get("/api/admin/mcps/oa_gateway")
+
+    assert fetched.status_code == 200
+    assert fetched.json()["health"] == "healthy"
+
+
+def test_admin_skill_and_mcp_contracts_share_registry_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    db_path = tmp_path / "registry.db"
+    first_app = create_app(db_path=db_path)
+    first_client = TestClient(first_app)
+
+    created_mcp = first_client.post(
+        "/api/admin/mcps",
+        json={
+            "name": "approval_center",
+            "displayName": "审批中心",
+            "category": "Workflow",
+            "description": "审批流中心",
+            "readWriteRisk": "动作型写入能力，需审批和审计",
+            "health": "healthy",
+            "releaseStatus": "published",
+            "referencedBy": [],
+        },
+    )
+    created_skill = first_client.post(
+        "/api/admin/skills",
+        json={
+            "name": "expense_assistant",
+            "displayName": "报销助手",
+            "category": "流程助手",
+            "description": "报销填单与提交流程",
+            "outputType": "流程结果",
+            "applicableOrganizations": ["集团总部"],
+            "status": "draft",
+            "businessDomain": "财务流程",
+            "riskLevel": "高",
+            "requiresApproval": True,
+            "writesData": True,
+            "mcpTools": ["approval_center"],
+        },
+    )
+
+    assert created_mcp.status_code == 200
+    assert created_skill.status_code == 200
+
+    restarted_app = create_app(db_path=db_path)
+    restarted_client = TestClient(restarted_app)
+    fetched = restarted_client.get("/api/admin/skills/expense_assistant")
+
+    assert fetched.status_code == 200
+    assert fetched.json()["mcpTools"] == ["approval_center"]
+
+
+def test_governance_submit_and_approve_persist_across_app_restarts(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    db_path = tmp_path / "governance.db"
+    first_app = create_app(db_path=db_path)
+    first_client = TestClient(first_app)
+
+    created = first_client.post(
+        "/api/admin/skills",
+        json={
+            "name": "price_policy_watch",
+            "displayName": "价格政策追踪",
+            "category": "政策分析",
+            "description": "跟踪区域价格政策变化。",
+            "outputType": "分析报告",
+            "applicableOrganizations": ["广汽国际"],
+            "status": "draft",
+            "businessDomain": "市场分析",
+            "riskLevel": "中",
+            "requiresApproval": True,
+            "writesData": False,
+            "mcpTools": ["web_search"],
+        },
+    )
+    submitted = first_client.post("/api/admin/governance/skills/price_policy_watch/submit")
+
+    assert created.status_code == 200
+    assert submitted.status_code == 200
+    assert submitted.json()["task"]["releaseStatus"] == "ready_for_review"
+
+    approved = first_client.post(f"/api/admin/governance/tasks/{submitted.json()['task']['id']}/approve")
+
+    assert approved.status_code == 200
+    assert approved.json()["task"]["releaseStatus"] == "ready_to_publish"
+    assert approved.json()["entity"]["releaseStatus"] == "ready_to_publish"
+
+    restarted_app = create_app(db_path=db_path)
+    restarted_client = TestClient(restarted_app)
+    tasks = restarted_client.get("/api/admin/governance/tasks").json()
+    skill = restarted_client.get("/api/admin/skills/price_policy_watch").json()
+    activities = restarted_client.get("/api/admin/governance/activities").json()
+
+    review_task = next(item for item in tasks if item["entityName"] == "price_policy_watch")
+    assert review_task["releaseStatus"] == "ready_to_publish"
+    assert skill["releaseStatus"] == "ready_to_publish"
+    assert any(item["action"] == "submitted_for_review" for item in activities)
+    assert any(item["action"] == "review_approved" for item in activities)
+
+
+def test_governance_publish_unblocks_dependent_tasks_and_persists_history(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    db_path = tmp_path / "governance.db"
+    first_app = create_app(db_path=db_path)
+    first_client = TestClient(first_app)
+
+    tasks = first_client.get("/api/admin/governance/tasks").json()
+    mcp_task = next(item for item in tasks if item["id"] == "mcp-task-014")
+
+    approved = first_client.post(f"/api/admin/governance/tasks/{mcp_task['id']}/approve")
+    assert approved.status_code == 200
+
+    published = first_client.post(f"/api/admin/governance/tasks/{mcp_task['id']}/publish")
+    assert published.status_code == 200
+    assert published.json()["task"]["releaseStatus"] == "published"
+
+    restarted_app = create_app(db_path=db_path)
+    restarted_client = TestClient(restarted_app)
+    restarted_tasks = restarted_client.get("/api/admin/governance/tasks").json()
+    activities = restarted_client.get("/api/admin/governance/activities").json()
+
+    parent_skill_task = next(item for item in restarted_tasks if item["id"] == "skill-task-001")
+    published_mcp_task = next(item for item in restarted_tasks if item["id"] == "mcp-task-014")
+    assert published_mcp_task["releaseStatus"] == "published"
+    assert parent_skill_task["releaseStatus"] == "testing"
+    assert any(item["action"] == "published_to_catalog" and item["entityName"] == "库存快照连接器" for item in activities)
+    assert any(item["action"] == "dependency_unblocked" and "渠道库存诊断" in item["detail"] for item in activities)
+
+
+def test_platform_prototype_api_persists_organization_permission_updates(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    update = client.patch(
+        "/api/organizations/gac-international/permissions",
+        json={
+            "openSkills": ["数据查询与分析", "同环比分析", "请假申请"],
+            "actionPermissions": ["查询", "下载", "提交"],
+            "approvalMode": "动作型能力二次确认",
+        },
+    )
+    fetched = client.get("/api/organizations/gac-international/permissions")
+    listed = client.get("/api/organizations")
+
+    assert update.status_code == 200
+    assert fetched.json()["openSkills"] == ["数据查询与分析", "同环比分析", "请假申请"]
+    assert fetched.json()["actionPermissions"] == ["查询", "下载", "提交"]
+    assert fetched.json()["approvalMode"] == "动作型能力二次确认"
+    assert listed.json()[0]["approvalMode"] == "动作型能力二次确认"
+
+
+def test_permission_updates_persist_across_app_restarts(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    db_path = tmp_path / "chat.db"
+    first_app = create_app(db_path=db_path)
+    first_client = TestClient(first_app)
+
+    org_update = first_client.patch(
+        "/api/organizations/gac-international/permissions",
+        json={
+            "openSkills": ["数据查询与分析", "同环比分析", "请假申请"],
+            "dataDomains": ["销售", "库存", "人力"],
+            "actionPermissions": ["查询", "下载", "提交"],
+            "approvalMode": "平台管理员复核",
+        },
+    )
+    account_update = first_client.patch(
+        "/api/admin/accounts/u-sales-chen/permissions",
+        json={
+            "allowedSkills": ["请假申请"],
+            "deniedSkills": ["同环比分析"],
+        },
+    )
+
+    assert org_update.status_code == 200
+    assert account_update.status_code == 200
+
+    restarted_app = create_app(db_path=db_path)
+    restarted_client = TestClient(restarted_app)
+    fetched_org = restarted_client.get("/api/organizations/gac-international/permissions")
+    fetched_account = restarted_client.get("/api/admin/accounts/u-sales-chen/permissions")
+
+    assert fetched_org.status_code == 200
+    assert fetched_org.json()["approvalMode"] == "平台管理员复核"
+    assert fetched_org.json()["actionPermissions"] == ["查询", "下载", "提交"]
+    assert fetched_account.status_code == 200
+    assert "请假申请" in fetched_account.json()["allowedSkills"]
+    assert "同环比分析" in fetched_account.json()["deniedSkills"]
+
+
+def test_effective_account_permissions_merge_organization_role_and_account_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    client.patch(
+        "/api/organizations/gac-international/permissions",
+        json={
+            "openSkills": ["数据查询与分析"],
+            "dataDomains": ["销售", "库存", "财务"],
+            "actionPermissions": ["查询"],
+            "approvalMode": "部门管理员复核",
+        },
+    )
+    updated_account = client.patch(
+        "/api/admin/accounts/u-sales-chen/permissions",
+        json={
+            "allowedSkills": ["请假申请", "内部数据与联网分析"],
+            "deniedSkills": ["同环比分析"],
+        },
+    )
+
+    assert updated_account.status_code == 200
+    payload = updated_account.json()
+    assert payload["organizationName"] == "广汽国际"
+    assert payload["roleNames"] == ["销售分析岗"]
+    assert "数据查询与分析" in payload["effectiveSkills"]
+    assert "请假申请" in payload["effectiveSkills"]
+    assert "内部数据与联网分析" in payload["effectiveSkills"]
+    assert "同环比分析" not in payload["effectiveSkills"]
+    assert payload["effectiveDataDomains"] == ["销售", "库存", "财务"]
+    assert payload["effectiveActionPermissions"] == ["查询", "下载"]
+    assert payload["canAccessAdmin"] is False
+
+
+def test_mock_auth_login_and_account_skill_permission_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    failed = client.post("/api/auth/login", json={"username": "platform_admin", "password": "wrong"})
+    login = client.post("/api/auth/login", json={"username": "platform_admin", "password": "admin123"})
+    accounts = client.get("/api/admin/accounts")
+    update = client.patch(
+        "/api/admin/accounts/u-sales-chen/permissions",
+        json={
+            "allowedSkills": ["请假申请"],
+            "deniedSkills": ["内部数据与联网分析"],
+        },
+    )
+    fetched = client.get("/api/admin/accounts/u-sales-chen/permissions")
+
+    assert failed.status_code == 401
+    assert login.status_code == 200
+    assert login.json()["account"]["username"] == "platform_admin"
+    assert login.json()["account"]["canAccessAdmin"] is True
+    assert "数据查询与分析" in login.json()["account"]["effectiveSkills"]
+    assert accounts.status_code == 200
+    assert accounts.json()[0]["organizationName"]
+    assert update.status_code == 200
+    assert "请假申请" in fetched.json()["effectiveSkills"]
+    assert "内部数据与联网分析" not in fetched.json()["effectiveSkills"]
+
+
+def test_mock_admin_can_create_account_with_organization_role_and_skill_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/admin/accounts",
+        json={
+            "username": "wang_ops",
+            "password": "ops123",
+            "displayName": "王运营",
+            "organizationId": "gac-international",
+            "roleIds": ["sales-analyst"],
+            "allowedSkills": ["内部数据与联网分析"],
+            "deniedSkills": ["同环比分析"],
+        },
+    )
+    accounts = client.get("/api/admin/accounts")
+
+    assert created.status_code == 200
+    assert created.json()["username"] == "wang_ops"
+    assert created.json()["organizationName"] == "广汽国际"
+    assert created.json()["roleNames"] == ["销售分析岗"]
+    assert "内部数据与联网分析" in created.json()["effectiveSkills"]
+    assert "同环比分析" not in created.json()["effectiveSkills"]
+    assert any(account["username"] == "wang_ops" for account in accounts.json())
+
+
 def test_chat_api_saves_messages_and_returns_steps(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")
@@ -41,6 +578,90 @@ def test_chat_api_saves_messages_and_returns_steps(tmp_path, monkeypatch):
 
     detail = client.get(f"/api/sessions/{session['id']}").json()
     assert [message["role"] for message in detail["messages"]] == ["user", "assistant"]
+
+
+def test_chat_api_routes_action_requests_to_leave_request_with_confirmation_hint(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+    session = client.post("/api/sessions", json={"title": "动作型会话"}).json()
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "session_id": session["id"],
+            "message": "帮我提交下周三到周五的年假申请",
+            "web_search_enabled": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"]["selected_skill"] == "leave_request"
+    assert "需确认后提交" in payload["assistant_message"]["content"]
+    assert payload["assistant_message"]["steps"]
+    session_detail = client.get(f"/api/sessions/{session['id']}").json()
+    assert session_detail["pending_action_skill"] == "leave_request"
+    assert session_detail["pending_action_status"] == "pending_confirmation"
+    assert "年假申请" in session_detail["pending_action_message"]
+
+
+def test_chat_api_confirms_or_cancels_pending_action_requests(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+    confirm_session = client.post("/api/sessions", json={"title": "确认动作型会话"}).json()
+
+    client.post(
+        "/api/chat",
+        json={
+            "session_id": confirm_session["id"],
+            "message": "帮我提交下周三到周五的年假申请",
+            "web_search_enabled": False,
+        },
+    )
+    confirmed = client.post(
+        "/api/chat",
+        json={
+            "session_id": confirm_session["id"],
+            "message": "确认提交",
+            "web_search_enabled": False,
+        },
+    )
+
+    assert confirmed.status_code == 200
+    assert confirmed.json()["assistant_message"]["selected_skill"] == "leave_request"
+    assert "已提交" in confirmed.json()["assistant_message"]["content"]
+    confirm_detail = client.get(f"/api/sessions/{confirm_session['id']}").json()
+    assert confirm_detail["pending_action_skill"] is None
+    assert confirm_detail["pending_action_status"] is None
+
+    cancel_session = client.post("/api/sessions", json={"title": "取消动作型会话"}).json()
+    client.post(
+        "/api/chat",
+        json={
+            "session_id": cancel_session["id"],
+            "message": "帮我提交下周三到周五的年假申请",
+            "web_search_enabled": False,
+        },
+    )
+    cancelled = client.post(
+        "/api/chat",
+        json={
+            "session_id": cancel_session["id"],
+            "message": "取消",
+            "web_search_enabled": False,
+        },
+    )
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["assistant_message"]["selected_skill"] == "leave_request"
+    assert "已回退" in cancelled.json()["assistant_message"]["content"]
+    cancel_detail = client.get(f"/api/sessions/{cancel_session['id']}").json()
+    assert cancel_detail["pending_action_skill"] is None
+    assert cancel_detail["pending_action_status"] is None
 
 
 def test_chat_stream_emits_callback_steps_before_answer(tmp_path, monkeypatch):

@@ -1,223 +1,188 @@
 import { useMemo, useState } from 'react';
-import { OperationsTask, SkillDefinition } from '../managementData';
-import { DetailTabs, PageHeader, PrototypeToast, StatusBadge } from '../components/ManagementUi';
+import { lifecycleActionByStage, lifecycleStageForReleaseStatus, LifecycleStage, OperationsTask, ReleaseActivity, SkillDefinition, skillGovernanceTags, stageLabel, tasksForAsset } from '../managementData';
+import { LifecycleOverviewPanel, PageHeader, PrototypeToast, StatusBadge } from '../components/ManagementUi';
 
 type Props = {
   skill: SkillDefinition;
   tasks: OperationsTask[];
+  recentActivities: ReleaseActivity[];
   onNavigate: (path: string) => void;
   onUpdate: (skill: SkillDefinition) => void;
+  onSubmitGovernance: (skill: SkillDefinition) => void;
 };
 
-export function SkillDetailPage({ skill, tasks, onNavigate, onUpdate }: Props) {
-  const [tab, setTab] = useState('引导流程');
+export function SkillDetailPage({ skill, tasks, recentActivities, onNavigate, onUpdate, onSubmitGovernance }: Props) {
   const [toast, setToast] = useState('');
+  const [skillPrompt, setSkillPrompt] = useState(skill.tagline || skill.description);
+  const [draftGenerated, setDraftGenerated] = useState(true);
   const [testInput, setTestInput] = useState(skill.examples[0] || '');
   const [testResult, setTestResult] = useState('');
-  const [docDraft, setDocDraft] = useState({
-    value: skill.tagline || skill.description,
-    flow: `${skill.steps.map((item, index) => `${index + 1}. ${item.description} -> ${item.mcp}`).join('\n')}`,
-    examples: `${skill.examples[0] || ''}\n---\n${skill.exampleOutput || skill.outputType}`,
-  });
-  const notify = (text: string) => { setToast(text); window.setTimeout(() => setToast(''), 2200); };
-  const relatedTasks = useMemo(() => tasks.filter((task) => task.entityName.includes(skill.name) || task.title.includes(skill.displayName) || task.parentTaskId), [tasks, skill.name, skill.displayName]);
-  const hasTestPassed = Boolean(testResult);
-  const guidanceSteps = [
-    { key: '1', label: '填写目标', description: '补全名称、目标、场景与期望输出，让 AI 明白你要做什么。', state: 'done' },
-    { key: '2', label: 'AI 生成', description: '系统按规范生成 Skill 草案、依赖与示例输入输出。', state: 'done' },
-    { key: '3', label: '校对文档', description: '重点确认作用说明、流程说明、依赖 MCP 和示例结果。', state: 'current' },
-    { key: '4', label: '自动测试并提交', description: '平台自动执行测试，通过后再提交审核中心。', state: hasTestPassed ? 'done' : 'pending' },
-  ] as const;
+  const [testAuditTrail, setTestAuditTrail] = useState<string[]>([]);
+  const [showTechnicalPreview, setShowTechnicalPreview] = useState(false);
+  const governance = skillGovernanceTags[skill.name];
+  const relatedTasks = useMemo(() => tasksForAsset('skill', skill.name, skill.displayName, tasks), [tasks, skill.name, skill.displayName]);
+  const primaryMcp = skill.mcpTools[0] || 'llm';
+  const isActionSkill = Boolean(governance?.writesData || skill.category.includes('流程') || skill.requirements?.some((item) => item.includes('OA')));
+  const failureSummary = relatedTasks.find((task) => task.type === 'skill')?.failureReason || relatedTasks.find((task) => task.type === 'skill')?.blockedBy;
+  const currentStage = lifecycleStageForReleaseStatus(skill.releaseStatus, failureSummary);
+  const currentStageAction = lifecycleActionByStage[currentStage];
+  const stageSteps: LifecycleStage[] = ['draft', 'testing', 'review', 'publish'];
+  const summaryItems = [
+    { label: '当前阶段', value: stageLabel[currentStage], description: currentStageAction },
+    {
+      label: '影响组织与风险提示',
+      value: governance?.applicableOrganizations.join(' / ') || '待配置组织范围',
+      description: `${governance?.requiresApproval ? '需组织审批' : '标准授权'} · ${governance?.writesData ? '包含写入动作' : '只读能力'}`,
+    },
+    { label: '依赖状态', value: skill.mcpTools.join(' / '), description: '依赖 MCP 会在测试阶段自动暴露失败定位。' },
+    { label: '发布前治理配置', value: '运行与权限辅助区', description: '上线前再配置组织授权、角色模板和审计策略。' },
+  ];
+  const focusAreas = [
+    { label: '测试', value: '示例输入与结果回放', description: '在当前页直接运行示例问题、查看结果和失败定位。' },
+    { label: '提审资料', value: '差异摘要与风险说明', description: '提交前确认作用说明、适用组织、依赖影响和审核反馈。' },
+    { label: '发布检查清单', value: '版本差异 / 回滚预案', description: '审核通过后在当前页完成发布确认，不再跨页跳转。' },
+    { label: '运行记录', value: `${recentActivities.length} 条最近动作`, description: '回看提交治理、审核、发布和依赖变化。' },
+  ];
 
-  const moveStep = (index: number, direction: number) => {
-    const target = index + direction;
-    if (target < 0 || target >= skill.steps.length) return;
-    const steps = [...skill.steps];
-    [steps[index], steps[target]] = [steps[target], steps[index]];
-    onUpdate({ ...skill, steps });
-    notify('工作流顺序已更新');
+  const notify = (text: string) => { setToast(text); window.setTimeout(() => setToast(''), 2200); };
+
+  const generateDraft = () => {
+    setDraftGenerated(true);
+    onUpdate({
+      ...skill,
+      tagline: skillPrompt,
+      examples: testInput ? Array.from(new Set([testInput, ...skill.examples])) : skill.examples,
+      updatedAt: '刚刚',
+    });
+    notify('大模型已生成 Skill 草案');
   };
 
-  const enableSkill = () => {
-    onUpdate({ ...skill, enabledForUser: !skill.enabledForUser });
-    notify(skill.enabledForUser ? '已在原型中停用用户侧能力' : '已在原型中启用用户侧能力');
+  const runTest = () => {
+    const testedQuestion = testInput || skill.examples[0] || skillPrompt;
+    if (isActionSkill) {
+      setTestResult(`系统已按“${testedQuestion}”模拟执行 ${skill.displayName}，先补齐必填字段，再命中审批规则与二次确认，最后演示提交流程失败后的自动回退。`);
+      setTestAuditTrail([
+        '审批命中：识别到这是动作型 Skill，需检查组织授权和审批人配置。',
+        '二次确认：已展示提交对象、影响范围和审批路径，等待用户确认。',
+        '失败回退：模拟 OA 提交超时，系统自动保留草稿并提示补提。',
+        '审计输出：审批命中、确认时间和回退原因已写入治理日志。',
+      ]);
+    } else {
+      setTestResult(`测试通过：系统已按“${testedQuestion}”模拟执行 ${skill.displayName}，完成意图识别、依赖工具调用和结果生成。`);
+      setTestAuditTrail([]);
+    }
+    notify('一键测试完成');
   };
 
   return <section className="management-page detail-page">
-    <button className="back-link" type="button" onClick={() => onNavigate('/admin/skills')}>← 返回 Skill 列表</button>
+    <button className="back-link" type="button" onClick={() => onNavigate('/admin/assets')}>← 返回统一目录</button>
     <PageHeader
       eyebrow={skill.category}
       title={skill.displayName}
-      description={skill.description}
-      actions={<><StatusBadge status={skill.status} /><button className="secondary-action" type="button" onClick={enableSkill}>{skill.enabledForUser ? '停用用户侧' : '启用用户侧'}</button><button className="primary-action" type="button" onClick={() => notify('已提交审核中心，等待人工复核')}>提交审核</button></>}
+      description="单详情页推进测试 → 提审 → 发布；把当前阶段主操作、依赖和治理提示放在同一页里。"
+      actions={<><StatusBadge status={skill.status} /><button className="secondary-action" type="button" onClick={() => setShowTechnicalPreview((value) => !value)}>{showTechnicalPreview ? '收起技术预览' : '查看技术预览'}</button><button className="primary-action" type="button" onClick={() => { onSubmitGovernance(skill); notify('已提交治理流程，等待人工复核'); }}>提交治理</button></>}
     />
-    <DetailTabs tabs={['引导流程', '工作流', 'Schema', '测试']} active={tab} onChange={setTab} />
-    {tab === '引导流程' && <div className="skill-guided-layout">
-      <section className="panel-card skill-guidance-hero">
-        <div>
-          <span>GUIDED FLOW</span>
-          <h3>按这 4 步做，就能把一个 Skill 从想法推进到可审核状态</h3>
-          <p>先说清楚目标，再让 AI 生成，随后校对关键文档，最后跑自动测试并提交审核。整个过程都在系统里完成，不需要跳到外部环境。</p>
+
+    <div className="skill-simple-layout">
+      {/* 阶段状态 / 当前阶段主操作 / 影响组织与风险提示由 LifecycleOverviewPanel 统一渲染 */}
+      <LifecycleOverviewPanel
+        summaryTitle="影响组织与风险提示"
+        summaryDescription="组织与权限从开发主流程降级为只读提示，真正的授权配置放到发布前治理配置中处理。"
+        currentStage={currentStage}
+        currentStageAction={currentStageAction}
+        summaryItems={summaryItems}
+        stageSteps={stageSteps}
+        focusAreas={focusAreas}
+      />
+
+      <section className="panel-card skill-prompt-builder">
+        <div className="section-toolbar">
+          <div>
+            <span>STEP 1</span>
+            <h3>描述你想做什么 Skill</h3>
+            <p>不用先写技术字段或工作流。把业务目标说清楚，剩下交给大模型生成。</p>
+          </div>
+          <button className="primary-action" type="button" onClick={generateDraft}>让大模型生成</button>
         </div>
-        <div className="skill-guidance-progress">
-          {guidanceSteps.map((item) => <article key={item.key} className={`guidance-step-card ${item.state}`}>
-            <b>{item.key}</b>
-            <strong>{item.label}</strong>
-            <p>{item.description}</p>
-          </article>)}
+        <textarea value={skillPrompt} onChange={(event) => setSkillPrompt(event.target.value)} placeholder="例如：我想做一个可以查询海外销量、生成趋势图，并解释异常波动原因的 Skill。" />
+      </section>
+
+      <section className="panel-card skill-generated-draft">
+        <div className="section-toolbar">
+          <div>
+            <span>STEP 2</span>
+            <h3>AI 生成 Skill 草案</h3>
+            <p>这里只展示用户能判断的结果：这个 Skill 做什么、适合谁用、需要哪些权限。</p>
+          </div>
+        </div>
+        <div className="generated-summary-grid">
+          <div><span>生成的 Skill 草案</span><strong>业务能力说明</strong><p>{draftGenerated ? skillPrompt : skill.description}</p></div>
+          <div><span>适用组织</span><strong>{governance?.applicableOrganizations.join(' / ') || '待组织授权确认'}</strong><p>后续由组织与权限页控制开通范围。</p></div>
+          <div><span>数据域权限</span><strong>{skill.requirements?.join(' / ') || '无额外数据域'}</strong><p>需要访问的数据域会进入授权审核。</p></div>
+          <div><span>动作权限</span><strong>{governance?.writesData ? '包含写入动作' : '仅查询与分析'}</strong><p>{governance?.requiresApproval ? '需要组织审批后才能使用。' : '标准授权即可使用。'}</p></div>
         </div>
       </section>
 
-      <div className="skill-guidance-main">
-        <article className="panel-card skill-guidance-step">
-          <div className="section-toolbar">
-            <div><h3>第 1 步：混合输入，把需求说清楚</h3><p>运维只需要填这几个字段，AI 就能按规范生成 Skill 草案。</p></div>
-            <button className="secondary-action" type="button" onClick={() => notify('已按当前描述重新生成草案')}>重新生成</button>
+      <section className="panel-card skill-simple-test">
+        <div className="section-toolbar">
+          <div>
+            <span>STEP 3</span>
+            <h3>测试这个 Skill</h3>
+            <p>输入一个用户真实会问的问题，直接看大模型生成的 Skill 能不能跑通。</p>
           </div>
-          <div className="hybrid-input-grid">
-            <label><span>名称</span><input defaultValue={skill.displayName} /></label>
-            <label><span>目标</span><input defaultValue={skill.tagline || skill.description} /></label>
-            <label><span>适用场景</span><input defaultValue={skill.scenes?.join(' / ') || ''} /></label>
-            <label><span>期望输出</span><input defaultValue={skill.expectedOutput?.join(' / ') || skill.outputType} /></label>
-            <label className="hybrid-prompt"><span>自然语言命令</span><textarea defaultValue={`请按照 mcp_and_skill_standard_specs 规范生成 ${skill.displayName}，自动补齐依赖、示例输入输出与测试用例。`} /></label>
+          <button className="primary-action" type="button" onClick={runTest}>运行测试</button>
+        </div>
+        <div className="simple-test-grid">
+          <label>
+            <span>测试问题</span>
+            <textarea value={testInput} onChange={(event) => setTestInput(event.target.value)} placeholder="输入一句真实业务问题" />
+          </label>
+          <div className="test-output simple-test-result">
+            <h3>测试结果</h3>
+            {testResult ? <>
+              <span className="result-success">✓ 执行成功</span>
+              <p>{testResult}</p>
+              {isActionSkill && <div className="test-guard-grid">
+                <div><span>审批命中</span><strong className="test-guard-status">已识别动作型 Skill</strong><p>提交前先校验组织授权、审批模式和动作权限。</p></div>
+                <div><span>二次确认</span><strong className="test-guard-status">等待用户确认</strong><p>展示请假区间、审批人和影响范围，再允许继续提交。</p></div>
+                <div><span>失败回退</span><strong className="test-guard-status">已保留草稿</strong><p>外部流程失败时自动回退，不直接丢失用户输入。</p></div>
+                <div><span>审计输出</span><strong className="test-guard-status">已写入治理日志</strong><p>{testAuditTrail.join(' ')}</p></div>
+              </div>}
+            </> : <div className="empty-console">等待一键测试</div>}
           </div>
-        </article>
+        </div>
+      </section>
 
-        <article className="panel-card skill-guidance-step">
-          <div className="section-toolbar">
-            <div><h3>第 2 步：确认 AI 生成结果与生成日志</h3><p>这里先看平台自动生成了什么，再决定是否进入文档校对。</p></div>
-            <button className="secondary-action" type="button" onClick={() => notify('已触发 AI 自动修复重试')}>AI 自动修复重试</button>
+      <section className="panel-card">
+        <div className="section-toolbar">
+          <div>
+            <span>RECENT</span>
+            <h3>最近治理记录</h3>
+            <p>查看最近提交治理、发布或其他关键动作，方便回看当前版本状态。</p>
           </div>
-          <div className="skill-guidance-split">
-            <div className="definition-grid">
-              <div><span>当前发布版本</span><strong>{skill.publishedVersion}</strong></div>
-              <div><span>最新草案</span><strong>{skill.latestVersion}</strong></div>
-              <div><span>自动测试</span><strong>{hasTestPassed ? '已通过' : '待运行'}</strong></div>
-              <div><span>用户启用状态</span><strong>{skill.enabledForUser ? '已启用' : '未启用'}</strong></div>
-            </div>
-            <div className="dependency-list">
-              <button type="button"><span>skills/{skill.name}.py</span><b>查看 →</b></button>
-              <button type="button"><span>示例输入 / 输出</span><b>查看 →</b></button>
-              <button type="button"><span>自动测试报告</span><b>查看 →</b></button>
-            </div>
-          </div>
-          <div className="generation-log">
-            <article><span>10:31</span><strong>解析需求</strong><p>识别到需要新的业务诊断 Skill，并检查现有 MCP 依赖。</p></article>
-            <article><span>10:33</span><strong>生成草案</strong><p>创建 `skills/{skill.name}.py` 草案，补齐 inputSchema、mcpTools 和 flow steps。</p></article>
-            <article><span>10:35</span><strong>自动测试</strong><p>首次测试发现依赖 MCP 版本未发布，已创建 MCP 子任务并等待完成。</p></article>
-            <article><span>10:38</span><strong>重试联调</strong><p>依赖就绪后重新跑示例输入输出测试，当前结果可提交审核。</p></article>
-          </div>
-        </article>
+        </div>
+        <div className="release-diff-list">
+          {recentActivities.length ? recentActivities.map((item) => <span key={item.id}>{item.detail}</span>) : <span>暂无治理动作</span>}
+        </div>
+      </section>
 
-        <article className="panel-card skill-guidance-step">
-          <div className="section-toolbar">
-            <div><h3>第 3 步：校对关键文档</h3><p>审核前最需要运维确认的是作用、流程、依赖 MCP 和示例输入输出。</p></div>
-            <button className="primary-action" type="button" onClick={() => notify('关键文档修改已保存到原型状态')}>保存文档</button>
+      {showTechnicalPreview && <section className="panel-card skill-technical-preview">
+        <div className="section-toolbar">
+          <div>
+            <span>OPTIONAL</span>
+            <h3>技术预览</h3>
+            <p>给开发和运维看的底层信息，普通用户不需要先理解这些。</p>
           </div>
-          <div className="doc-editor-grid">
-            <label>
-              <span>作用说明</span>
-              <textarea value={docDraft.value} onChange={(event) => setDocDraft((current) => ({ ...current, value: event.target.value }))} />
-            </label>
-            <label>
-              <span>流程说明</span>
-              <textarea value={docDraft.flow} onChange={(event) => setDocDraft((current) => ({ ...current, flow: event.target.value }))} />
-            </label>
-            <label className="doc-editor-wide">
-              <span>示例输入输出</span>
-              <textarea value={docDraft.examples} onChange={(event) => setDocDraft((current) => ({ ...current, examples: event.target.value }))} />
-            </label>
-          </div>
-        </article>
+          <button className="secondary-action" type="button" onClick={() => onNavigate(`/admin/mcps/${primaryMcp}`)}>查看依赖 MCP</button>
+        </div>
+        <div className="tech-preview-grid">
+          <div><span>依赖 MCP</span>{skill.mcpTools.map((mcpName) => <button type="button" key={mcpName} onClick={() => onNavigate(`/admin/mcps/${mcpName}`)}>{mcpName} ↗</button>)}</div>
+          <div><span>自动编排步骤</span>{skill.steps.map((step, index) => <p key={step.name}>{index + 1}. {step.description}</p>)}</div>
+          <div><span>治理任务</span>{relatedTasks.length > 0 ? relatedTasks.map((task) => <p key={task.id}>{task.title}</p>) : <p>暂无阻塞任务</p>}</div>
+        </div>
+      </section>}
+    </div>
 
-        <article className="panel-card skill-guidance-step">
-          <div className="section-toolbar">
-            <div><h3>第 4 步：跑自动测试，再提交审核</h3><p>所有测试都在系统内执行，通过后再进入审核中心，不需要外部测试环境。</p></div>
-            <button className="primary-action" type="button" onClick={() => setTestResult(`测试完成：${skill.displayName} 已依次执行 ${skill.steps.length} 个步骤，自动测试全部通过，可提交审核。`)}>运行自动测试</button>
-          </div>
-          <div className="skill-guidance-test-strip">
-            <div className="test-input compact-test-input">
-              <h3>测试输入</h3>
-              <p>直接使用示例问题验证 Skill 的主流程和依赖 MCP。</p>
-              <textarea value={testInput} onChange={(event) => setTestInput(event.target.value)} />
-            </div>
-            <div className="test-output compact-test-output">
-              <h3>测试结果</h3>
-              {testResult ? <><span className="result-success">✓ 执行成功</span><p>{testResult}</p><div className="mini-timeline">{skill.steps.map((item) => <span key={item.name}>✓ {item.description}<small>{item.mcp}</small></span>)}</div></> : <div className="empty-console">等待运行测试</div>}
-            </div>
-          </div>
-        </article>
-      </div>
-
-      <aside className="skill-guidance-side">
-        <article className="panel-card">
-          <h3>当前状态</h3>
-          <div className="definition-grid guidance-mini-grid">
-            <div><span>审核状态</span><strong>{skill.status === 'enabled' ? '可提交' : '草稿中'}</strong></div>
-            <div><span>依赖 MCP</span><strong>{skill.mcpTools.length} 个</strong></div>
-            <div><span>工作流步骤</span><strong>{skill.steps.length} 步</strong></div>
-            <div><span>示例用例</span><strong>{skill.examples.length} 条</strong></div>
-          </div>
-        </article>
-
-        <article className="panel-card">
-          <h3>审核重点</h3>
-          <div className="mini-timeline task-timeline">
-            <span>✓ 功能作用是否说清楚<small>是否能让审核人快速理解这个 Skill 做什么</small></span>
-            <span>✓ 流程是否闭环<small>步骤顺序、依赖 MCP、输入输出是否一致</small></span>
-            <span>✓ 示例是否可信<small>输入输出是否能反映真实使用场景</small></span>
-          </div>
-        </article>
-
-        <article className="panel-card">
-          <h3>依赖链路</h3>
-          <div className="task-stack compact">
-            <article className="task-card stage-published">
-              <div className="task-card-top"><div><span>Skill 主任务</span><strong>{skill.displayName}</strong></div><i>{skill.releaseStatus === 'published' ? '已发布' : '待处理'}</i></div>
-              <p>主任务在依赖 MCP 就绪后继续联调测试并进入审核中心。</p>
-            </article>
-            <article className="task-card stage-ready_for_review">
-              <div className="task-card-top"><div><span>MCP 子任务</span><strong>inventory_snapshot_mcp</strong></div><i>待审核</i></div>
-              <p>MCP 子任务已通过自动测试，等待人工审核后发布。</p>
-            </article>
-          </div>
-        </article>
-
-        {relatedTasks.length > 0 && <article className="panel-card">
-          <h3>任务流转</h3>
-          <div className="mini-timeline task-timeline">
-            {relatedTasks.map((task) => <span key={task.id}>✓ {task.title}<small>{task.summary}</small></span>)}
-          </div>
-        </article>}
-      </aside>
-    </div>}
-
-    {tab === '工作流' && <div className="workflow-editor">
-      <div className="section-toolbar"><div><h3>纵向工作流</h3><p>步骤按顺序调用 MCP，并通过变量引用传递结果。</p></div><button className="primary-action" type="button" onClick={() => { onUpdate({ ...skill, steps: [...skill.steps, { name: `new_step_${skill.steps.length + 1}`, description: '新工作流步骤', mcp: 'llm', arguments: '{{input.query}}' }] }); notify('已添加步骤'); }}>＋ 添加步骤</button></div>
-      {skill.steps.map((item, index) => {
-        const mcpName = item.mcp;
-        return <article className="workflow-editor-step" key={`${item.name}-${index}`}><div className="step-number">{index + 1}</div><div className="step-main"><div><h4>{item.description}</h4><code>{item.name}</code></div><button type="button" onClick={() => onNavigate(`/admin/mcps/${mcpName}`)}>{item.mcp} ↗</button><pre>{item.arguments}</pre></div><div className="step-actions"><button type="button" onClick={() => moveStep(index, -1)}>↑</button><button type="button" onClick={() => moveStep(index, 1)}>↓</button></div></article>;
-      })}
-    </div>}
-
-    {tab === 'Schema' && <div className="detail-grid">
-      <article className="panel-card"><h3>输入字段</h3><div className="schema-field"><strong>query</strong><span>string · 必填</span><p>用户的自然语言查询</p></div></article>
-      <article className="panel-card"><h3>场景与输出约束</h3>{skill.scenes?.map((scene) => <p className="example-item" key={scene}>{scene}</p>)}{skill.expectedOutput?.map((item) => <p className="example-item" key={item}>{item}</p>)}</article>
-      <article className="panel-card code-card span-2"><h3>原始配置</h3><pre>{JSON.stringify({ name: skill.name, category: skill.category, mcpTools: skill.mcpTools, inputSchema: { type: 'object', required: ['query'] }, releaseStatus: skill.releaseStatus }, null, 2)}</pre></article>
-    </div>}
-
-    {tab === '测试' && <div className="test-console">
-      <div className="test-input">
-        <h3>自动测试</h3>
-        <p>平台自动校验模块导入、Skill 配置结构、MCP 可解析性和示例输出结构。</p>
-        <textarea value={testInput} onChange={(event) => setTestInput(event.target.value)} />
-        <button className="primary-action" type="button" onClick={() => setTestResult(`测试完成：${skill.displayName} 已依次执行 ${skill.steps.length} 个步骤，自动测试全部通过，可提交审核。`)}>运行测试</button>
-      </div>
-      <div className="test-output">
-        <h3>运行结果</h3>
-        {testResult ? <><span className="result-success">✓ 执行成功</span><p>{testResult}</p><div className="mini-timeline">{skill.steps.map((item) => <span key={item.name}>✓ {item.description}<small>{item.mcp}</small></span>)}</div></> : <div className="empty-console">等待运行测试</div>}
-      </div>
-    </div>}
     <PrototypeToast text={toast} />
   </section>;
 }

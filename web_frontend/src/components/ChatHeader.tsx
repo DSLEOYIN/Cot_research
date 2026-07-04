@@ -8,13 +8,15 @@ type Props = {
 };
 
 export function ChatHeader({ session, historyCollapsed, onToggleHistory, onNew }: Props) {
+  const hasPendingAction = session?.pending_action_status === 'pending_confirmation';
   return (
     <header className="chat-header">
       <div className="chat-header-title">
         <img src="/assets/assistant-avatar.png" alt="" />
         <div>
-          <h1>广汽国际 AI 助手</h1>
-          <p>{session?.title || '生产 Web 智能问答'}</p>
+          <h1>广汽集团 AI 助手</h1>
+          <p>{session?.title || '统一 AI 门户'}</p>
+          {hasPendingAction && <span className="chat-header-pending">待确认动作</span>}
         </div>
       </div>
       <div className="chat-header-actions">

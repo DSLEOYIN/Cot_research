@@ -6,9 +6,9 @@ type Props = {
 };
 
 const items = [
-  { path: '/chat', label: '智能问答', icon: '✦' },
-  { path: '/skills', label: '我的 Skill', icon: '◇' },
-  { path: '/admin', label: '系统管理', icon: '⌘' },
+  { path: '/chat', label: 'AI 助手', icon: '✦' },
+  { path: '/skills', label: '能力中心', icon: '◇' },
+  { path: '/admin', label: '平台治理', icon: '⌘' },
 ];
 // Admin routes live under /admin, with catalogs at /admin/skills and /admin/mcps.
 
@@ -17,7 +17,7 @@ export function GlobalNav({ path, collapsed, onNavigate, onToggle }: Props) {
     <aside className={`global-nav ${collapsed ? 'collapsed' : ''}`}>
       <div className="global-brand">
         <div className="global-brand-mark">C</div>
-        {!collapsed && <div><strong>ChatBI</strong><span>能力工作台</span></div>}
+        {!collapsed && <div><strong>AI 一体化平台</strong><span>能力工作台</span></div>}
       </div>
       <nav className="global-nav-items">
         {items.map((item) => (
@@ -27,7 +27,7 @@ export function GlobalNav({ path, collapsed, onNavigate, onToggle }: Props) {
         ))}
       </nav>
       <div className="global-nav-foot">
-        {!collapsed && <div className="system-health"><span /><div><strong>系统运行正常</strong><small>13 项能力已接入</small></div></div>}
+        {!collapsed && <div className="system-health"><span /><div><strong>平台运行正常</strong><small>13 项集团能力已接入</small></div></div>}
         <button className="nav-collapse" type="button" onClick={onToggle} title={collapsed ? '展开导航' : '收起导航'}>{collapsed ? '›' : '‹'}</button>
       </div>
     </aside>

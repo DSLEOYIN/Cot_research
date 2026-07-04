@@ -5,9 +5,10 @@ import { MessageBubble } from './MessageBubble';
 type Props = {
   messages: ChatMessage[];
   emptyHint: boolean;
+  onAction: (text: string) => void;
 };
 
-export function MessageList({ messages, emptyHint }: Props) {
+export function MessageList({ messages, emptyHint, onAction }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const userPausedRef = useRef(false);
@@ -58,11 +59,11 @@ export function MessageList({ messages, emptyHint }: Props) {
           <div className="message ai">
             <div className="msg-avatar ai-avatar"><img src="/assets/assistant-avatar.png" alt="" /></div>
             <div className="msg-content welcome">
-              你好，我是广汽国际 AI 助手。可以查询内部业务数据、做同环比分析，也可以在开启联网后结合公开资料进行综合分析。
+              你好，我是广汽集团 AI 助手。可以查询内部业务数据、做同环比分析，也可以在开启联网后结合公开资料进行综合分析。
             </div>
           </div>
         )}
-        {messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+        {messages.map((message) => <MessageBubble key={message.id} message={message} onAction={onAction} />)}
       </div>
     </div>
   );
