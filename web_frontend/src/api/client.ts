@@ -116,6 +116,7 @@ export type LoginResponse = {
 
 export type AdminSkillPayload = Record<string, unknown>;
 export type AdminMcpPayload = Record<string, unknown>;
+export type AdminAssetPayload = Record<string, unknown>;
 export type PlatformMetricsPayload = Record<string, unknown>;
 export type ActionGovernancePayload = Record<string, unknown>;
 export type GovernanceTaskPayload = Record<string, unknown>;
@@ -190,6 +191,7 @@ export const api = {
   updateAccountPermissions: (accountId: string, payload: Partial<AccountPermissionProfile>) =>
     request<AccountPermissionProfile>(`/api/admin/accounts/${accountId}/permissions`, { method: 'PATCH', body: JSON.stringify(payload) }),
   listAdminSkills: () => request<AdminSkillPayload[]>('/api/admin/skills'),
+  listAdminAssets: () => request<AdminAssetPayload[]>('/api/admin/assets'),
   getAdminSkill: (skillId: string) => request<AdminSkillPayload>(`/api/admin/skills/${skillId}`),
   createAdminSkill: (payload: AdminSkillPayload) =>
     request<AdminSkillPayload>('/api/admin/skills', { method: 'POST', body: JSON.stringify(payload) }),

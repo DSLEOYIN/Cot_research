@@ -556,6 +556,104 @@ def _find_by_name(items: list[dict[str, Any]], name: str, label: str) -> dict[st
     raise HTTPException(status_code=404, detail=f"{label} not found: {name}")
 
 
+def _lifecycle_stage_for_release_status(release_status: str, failure_reason: str | None = None) -> str:
+    if release_status == "draft":
+        return "draft"
+    if release_status == "testing":
+        return "testing"
+    if release_status in {"ready_for_review", "review_approved"}:
+        return "review"
+    if release_status == "ready_to_publish":
+        return "publish"
+    if release_status == "published":
+        return "published"
+    if failure_reason:
+        return "review_rejected"
+    return "blocked"
+
+
+def _tasks_for_asset(
+    task_type: str,
+    entity_name: str,
+    display_name: str,
+    tasks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    direct_tasks = [
+        task for task in tasks
+        if task["type"] == task_type and (
+            task["entityName"] == entity_name
+            or task["entityName"] == display_name
+            or display_name in task["title"]
+        )
+    ]
+    if task_type != "skill":
+        return direct_tasks
+    direct_task_ids = {task["id"] for task in direct_tasks}
+    child_tasks = [task for task in tasks if task.get("parentTaskId") in direct_task_ids]
+    return [*direct_tasks, *child_tasks]
+
+
+def _build_unified_assets(
+    skills: list[dict[str, Any]],
+    mcps: list[dict[str, Any]],
+    tasks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    assets: list[dict[str, Any]] = []
+    for skill in skills:
+        related_tasks = _tasks_for_asset("skill", skill["name"], skill["displayName"], tasks)
+        primary_task = next((task for task in related_tasks if task["type"] == "skill"), None)
+        failure_reason = (primary_task or {}).get("failureReason") or (primary_task or {}).get("blockedBy")
+        assets.append({
+            "asset_id": f"skill:{skill['name']}",
+            "asset_type": "skill",
+            "name": skill["name"],
+            "display_name": skill["displayName"],
+            "description": skill["description"],
+            "category": skill["category"],
+            "status": skill["status"],
+            "release_status": skill["releaseStatus"],
+            "current_stage": _lifecycle_stage_for_release_status(skill["releaseStatus"], failure_reason),
+            "risk_level": skill.get("riskLevel") or "中",
+            "owner": related_tasks[0]["owner"] if related_tasks else "平台管理员",
+            "dependency_status": f"{len(skill.get('mcpTools') or [])} 个 MCP 依赖" if skill.get("mcpTools") else "无外部依赖",
+            "failure_summary": failure_reason,
+            "organization_summary": " / ".join(skill.get("applicableOrganizations") or []) or "待配置组织范围",
+            "action_url": f"/admin/skills/{skill['name']}",
+            "updated_at": primary_task["updatedAt"] if primary_task else "刚刚",
+        })
+    for mcp in mcps:
+        failure_reason = mcp.get("blockedBy")
+        assets.append({
+            "asset_id": f"mcp:{mcp['name']}",
+            "asset_type": "mcp",
+            "name": mcp["name"],
+            "display_name": mcp["displayName"],
+            "description": mcp["description"],
+            "category": mcp["category"],
+            "status": mcp["status"],
+            "release_status": mcp["releaseStatus"],
+            "current_stage": _lifecycle_stage_for_release_status(mcp["releaseStatus"], failure_reason),
+            "risk_level": "高" if "executor" in mcp["name"] else "中",
+            "owner": _tasks_for_asset("mcp", mcp["name"], mcp["displayName"], tasks)[0]["owner"] if _tasks_for_asset("mcp", mcp["name"], mcp["displayName"], tasks) else "平台管理员",
+            "dependency_status": f"被 {len(mcp.get('referencedBy') or [])} 个 Skill 引用" if mcp.get("referencedBy") else "尚未被 Skill 引用",
+            "failure_summary": failure_reason,
+            "organization_summary": "发布前治理配置",
+            "action_url": f"/admin/mcps/{mcp['name']}",
+            "updated_at": "刚刚",
+        })
+    stage_priority = {
+        "blocked": 0,
+        "review_rejected": 1,
+        "testing": 2,
+        "review": 3,
+        "publish": 4,
+        "draft": 5,
+        "published": 6,
+    }
+    assets.sort(key=lambda item: (stage_priority.get(item["current_stage"], 99), 0 if item["asset_type"] == "mcp" else 1, item["display_name"]))
+    return assets
+
+
 def _match_action_skill(message: str) -> str | None:
     lowered = message.lower()
     if any(keyword in message for keyword in ["请假", "年假", "事假", "调休"]) or "leave" in lowered:
@@ -816,6 +914,14 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
     @app.get("/api/admin/governance/tasks")
     def list_governance_tasks():
         return registry_repo.list_governance_tasks()
+
+    @app.get("/api/admin/assets")
+    def list_admin_assets():
+        return _build_unified_assets(
+            registry_repo.list_skills(),
+            registry_repo.list_mcps(),
+            registry_repo.list_governance_tasks(),
+        )
 
     @app.get("/api/admin/governance/activities")
     def list_governance_activities():

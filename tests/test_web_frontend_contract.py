@@ -69,6 +69,7 @@ def test_frontend_client_defines_platform_api_entry_points_from_dev_doc():
     assert "getOrganizationPermissions" in client
     assert "updateOrganizationPermissions" in client
     assert "listAdminSkills" in client
+    assert "listAdminAssets" in client
     assert "getAdminSkill" in client
     assert "testAdminSkill" in client
     assert "listAdminMcps" in client
@@ -85,6 +86,7 @@ def test_frontend_client_defines_platform_api_entry_points_from_dev_doc():
     assert "'/api/capabilities'" in client
     assert "'/api/auth/login'" in client
     assert "'/api/admin/accounts'" in client
+    assert "'/api/admin/assets'" in client
     assert "'/api/organizations'" in client
     assert "'/api/admin/metrics/overview'" in client
     assert "'/api/admin/action-governance'" in client
@@ -115,6 +117,7 @@ def test_app_hydrates_platform_mock_api_without_breaking_local_prototype_fallbac
     workbench = read(SRC / "pages" / "AdminWorkbenchPage.tsx")
 
     assert "hydratePlatformPrototypeData" in app
+    assert "api.listAdminAssets()" in app
     assert "api.listAdminSkills()" in app
     assert "api.listAdminMcps()" in app
     assert "api.listOrganizations()" in app
@@ -125,7 +128,9 @@ def test_app_hydrates_platform_mock_api_without_breaking_local_prototype_fallbac
     assert "api.listActionGovernanceCases()" in app
     assert "mergeSkillFromApi" in app
     assert "mergeMcpFromApi" in app
+    assert "adminAssetsFromApi" in app
     assert "catch(() => undefined)" in app
+    assert "setAssetDirectoryState" in app
     assert "setSkills((items)" in app
     assert "setMcps((items)" in app
     assert "setOrganizationProfiles" in app
@@ -140,6 +145,7 @@ def test_app_hydrates_platform_mock_api_without_breaking_local_prototype_fallbac
     assert "platformOrganizationMetrics={platformOrganizationMetricsState}" in app
     assert "platformAlerts={platformAlertsState}" in app
     assert "actionGovernanceCases={actionGovernanceCasesState}" in app
+    assert "assets={assetDirectoryState}" in app
     assert "organizationProfiles.map" in review_page
     assert "platformMetrics.monthlyActiveUsers" in release_page
     assert "platformMetrics.monthlyActiveUsers" in workbench
@@ -304,12 +310,23 @@ def test_admin_redesign_uses_unified_asset_directory_and_stage_driven_detail_vie
 def test_unified_asset_directory_prioritizes_actionable_skill_and_mcp_records():
     management_data = read(SRC / "managementData.ts")
     workbench = read(SRC / "pages" / "AdminWorkbenchPage.tsx")
+    asset_directory = read(SRC / "pages" / "AssetDirectoryPage.tsx")
+    drawer = read(SRC / "components" / "TaskDetailDrawer.tsx")
 
     assert "global_policy_watch" in management_data
     assert "channel_inventory_diagnosis" in management_data
     assert "inventory_snapshot_mcp" in management_data
     assert "lifecycleStagePriority" in management_data
+    assert "buildLifecycleMetrics" in management_data
+    assert "lifecycleStageOptions" in management_data
+    assert "taskLifecycleStage" in management_data
     assert "left.type === 'mcp' ? -1 : 1" in management_data
+    assert "buildLifecycleMetrics(assets)" in asset_directory
+    assert "lifecycleStageOptions.map" in asset_directory
+    assert "taskLifecycleStage(task)" in workbench
+    assert "stageLabel[taskLifecycleStage(task)]" in workbench
+    assert "taskLifecycleStage(task)" in drawer
+    assert "stageLabel[taskLifecycleStage(task)]" in drawer
     assert "resolveTaskRoute" in workbench
     assert "task.entityName === skill.name" in workbench
     assert "task.entityName === mcp.name" in workbench
@@ -340,7 +357,9 @@ def test_skill_and_mcp_detail_pages_share_lifecycle_overview_component():
     assert "task.parentTaskId && directTaskIds.has(task.parentTaskId)" in management_data
     assert "- [x] 统一目录与单详情页主流程重构" in doc
     assert "- [x] 将 Skill/MCP 详情页的阶段逻辑抽到统一状态工具" in doc
-    assert "- [ ] 接入真实统一资产 API" in doc
+    assert "- [x] 将工作台、统一目录、详情页全部改为复用同一套生命周期状态工具" in doc
+    assert "- [x] 接入真实统一资产 API" in doc
+    assert "- [x] 为统一资产增加稳定字段" in doc
 
 
 def test_workflow_stays_open_until_answer_output_then_collapses():

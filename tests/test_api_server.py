@@ -33,6 +33,7 @@ def test_platform_prototype_api_exposes_capabilities_permissions_and_metrics(tmp
     skill = client.get("/api/admin/skills/data_query")
     mcps = client.get("/api/admin/mcps")
     mcp = client.get("/api/admin/mcps/sql_executor")
+    assets = client.get("/api/admin/assets")
     governance_tasks = client.get("/api/admin/governance/tasks")
     release_activities = client.get("/api/admin/governance/activities")
     metrics = client.get("/api/admin/metrics/overview")
@@ -52,6 +53,7 @@ def test_platform_prototype_api_exposes_capabilities_permissions_and_metrics(tmp
     assert skill.status_code == 200
     assert mcps.status_code == 200
     assert mcp.status_code == 200
+    assert assets.status_code == 200
     assert governance_tasks.status_code == 200
     assert release_activities.status_code == 200
     assert metrics.status_code == 200
@@ -61,6 +63,13 @@ def test_platform_prototype_api_exposes_capabilities_permissions_and_metrics(tmp
     assert action_governance.status_code == 200
     assert data_query.json()["displayName"] == "数据查询与分析"
     assert org_permissions.json()["organizationName"] == "广汽国际"
+    assert assets.json()[0]["asset_id"]
+    assert assets.json()[0]["asset_type"] in {"skill", "mcp"}
+    assert assets.json()[0]["current_stage"]
+    assert assets.json()[0]["risk_level"]
+    assert assets.json()[0]["owner"]
+    assert assets.json()[0]["dependency_status"]
+    assert assets.json()[0]["action_url"]
     assert governance_tasks.json()[0]["title"]
     assert release_activities.json()[0]["action"]
     assert "monthlyActiveUsers" in metrics.json()
@@ -68,6 +77,53 @@ def test_platform_prototype_api_exposes_capabilities_permissions_and_metrics(tmp
     assert "organizationItems" in organization_metrics.json()
     assert alerts.json()[0]["message"]
     assert action_governance.json()[0]["approvalStatus"]
+
+
+def test_platform_prototype_api_exposes_unified_assets_with_stable_fields_and_persisted_updates(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    db_path = tmp_path / "registry.db"
+    first_app = create_app(db_path=db_path)
+    first_client = TestClient(first_app)
+
+    created_skill = first_client.post(
+        "/api/admin/skills",
+        json={
+            "name": "fleet_alert_watch",
+            "displayName": "车队预警追踪",
+            "category": "运营分析",
+            "description": "监控车队异常预警并输出治理建议。",
+            "outputType": "分析报告",
+            "applicableOrganizations": ["广汽国际"],
+            "status": "draft",
+            "businessDomain": "运营分析",
+            "riskLevel": "中",
+            "requiresApproval": True,
+            "writesData": False,
+            "mcpTools": ["knowledge_retrieval"],
+        },
+    )
+    submitted = first_client.post("/api/admin/governance/skills/fleet_alert_watch/submit")
+    assets = first_client.get("/api/admin/assets")
+
+    assert created_skill.status_code == 200
+    assert submitted.status_code == 200
+    assert assets.status_code == 200
+    created_asset = next(item for item in assets.json() if item["asset_id"] == "skill:fleet_alert_watch")
+    assert created_asset["asset_type"] == "skill"
+    assert created_asset["current_stage"] == "review"
+    assert created_asset["risk_level"] == "中"
+    assert created_asset["dependency_status"] == "1 个 MCP 依赖"
+    assert created_asset["action_url"] == "/admin/skills/fleet_alert_watch"
+
+    restarted_app = create_app(db_path=db_path)
+    restarted_client = TestClient(restarted_app)
+    restarted_assets = restarted_client.get("/api/admin/assets")
+
+    assert restarted_assets.status_code == 200
+    restarted_asset = next(item for item in restarted_assets.json() if item["asset_id"] == "skill:fleet_alert_watch")
+    assert restarted_asset["current_stage"] == "review"
+    assert restarted_asset["owner"]
 
 
 def test_platform_prototype_api_supports_governance_mutation_dry_runs(tmp_path, monkeypatch):

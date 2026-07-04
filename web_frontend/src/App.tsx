@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccountPermissionProfile, AdminRoleProfile, api, ChatMessage, ChatSession, PermissionAuditLog } from './api/client';
+import { AccountPermissionProfile, AdminAssetPayload, AdminRoleProfile, api, ChatMessage, ChatSession, PermissionAuditLog } from './api/client';
 import { ChatHeader } from './components/ChatHeader';
 import { ChatInput } from './components/ChatInput';
 import { DeleteDialog } from './components/DeleteDialog';
@@ -7,7 +7,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { MessageList } from './components/MessageList';
 import { RenameDialog } from './components/RenameDialog';
 import { AppShell } from './components/AppShell';
-import { ActionGovernanceCase, actionGovernanceCases, buildUnifiedAssets, initialMcps, initialReleaseActivities, initialSkills, McpDefinition, OperationsTask, operationsTasks, OrganizationAccessProfile, organizationAccessProfiles, PlatformAlert, platformAlerts, PlatformMetrics, platformMetrics, PlatformOrganizationMetrics, platformOrganizationMetrics, PlatformSkillMetrics, platformSkillMetrics, ReleaseActivity, SkillDefinition } from './managementData';
+import { ActionGovernanceCase, actionGovernanceCases, buildUnifiedAssets, initialMcps, initialReleaseActivities, initialSkills, McpDefinition, OperationsTask, operationsTasks, OrganizationAccessProfile, organizationAccessProfiles, PlatformAlert, platformAlerts, PlatformMetrics, platformMetrics, PlatformOrganizationMetrics, platformOrganizationMetrics, PlatformSkillMetrics, platformSkillMetrics, ReleaseActivity, SkillDefinition, UnifiedAssetRecord } from './managementData';
 import { useWorkspaceRoute } from './useWorkspaceRoute';
 import { SkillsPage } from './pages/SkillsPage';
 import { SkillDetailPage } from './pages/SkillDetailPage';
@@ -205,6 +205,31 @@ const actionGovernanceCasesFromApi = (payload: unknown, fallback: ActionGovernan
     : fallback
 );
 
+const adminAssetsFromApi = (payload: unknown, fallback: UnifiedAssetRecord[]): UnifiedAssetRecord[] => (
+  Array.isArray(payload)
+    ? payload
+      .filter((item): item is AdminAssetPayload => typeof item === 'object' && item !== null)
+      .map((item, index) => ({
+        id: stringValue(item.asset_id) || `asset-${index}`,
+        type: stringValue(item.asset_type) === 'mcp' ? 'mcp' : 'skill',
+        name: stringValue(item.name) || 'unknown',
+        displayName: stringValue(item.display_name) || '未命名资产',
+        description: stringValue(item.description) || '待补能力说明',
+        category: stringValue(item.category) || '未分类',
+        status: (stringValue(item.status) as UnifiedAssetRecord['status']) || 'draft',
+        releaseStatus: (stringValue(item.release_status) as UnifiedAssetRecord['releaseStatus']) || 'draft',
+        lifecycleStage: (stringValue(item.current_stage) as UnifiedAssetRecord['lifecycleStage']) || 'draft',
+        updatedAt: stringValue(item.updated_at) || '刚刚',
+        owner: stringValue(item.owner) || '平台管理员',
+        dependencySummary: stringValue(item.dependency_status) || '待补依赖摘要',
+        failureSummary: stringValue(item.failure_summary),
+        riskLabel: `风险：${stringValue(item.risk_level) || '中'}`,
+        organizationSummary: stringValue(item.organization_summary) || '待配置组织范围',
+        route: stringValue(item.action_url) || '/admin/assets',
+      }))
+    : fallback
+);
+
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
@@ -230,6 +255,7 @@ function App() {
   const [releaseActivities, setReleaseActivities] = useState<ReleaseActivity[]>(initialReleaseActivities);
   const [actionGovernanceCasesState, setActionGovernanceCasesState] = useState<ActionGovernanceCase[]>(actionGovernanceCases);
   const [opsTasks, setOpsTasks] = useState<OperationsTask[]>(operationsTasks);
+  const [assetDirectoryState, setAssetDirectoryState] = useState<UnifiedAssetRecord[]>(buildUnifiedAssets(initialSkills, initialMcps, operationsTasks));
   const [managementNotice, setManagementNotice] = useState('');
   const [skillTryText, setSkillTryText] = useState('');
   const [recentlyInstalledSkillName, setRecentlyInstalledSkillName] = useState('');
@@ -268,7 +294,8 @@ function App() {
   }
 
   async function hydratePlatformPrototypeData() {
-    const [adminSkills, adminMcps, governanceTasks, governanceActivities] = await Promise.all([
+    const [adminAssets, adminSkills, adminMcps, governanceTasks, governanceActivities] = await Promise.all([
+      api.listAdminAssets(),
       api.listAdminSkills(),
       api.listAdminMcps(),
       api.listGovernanceTasks(),
@@ -283,6 +310,25 @@ function App() {
       api.listActionGovernanceCases(),
     ]);
     const [nextAccounts, nextRoles, nextPermissionAuditLogs] = await Promise.all([api.listAccounts(), api.listAdminRoles(), api.listPermissionAuditLogs()]);
+    const nextGovernanceTasks = governanceTasksFromApi(governanceTasks, operationsTasks);
+    const mergedSkills = skills.map((item) => {
+      const payload = adminSkills.find((skill) => stringValue(skill.name) === item.name);
+      return payload ? mergeSkillFromApi(item, payload) : item;
+    });
+    const addedSkills = adminSkills
+      .filter((skill) => !mergedSkills.some((item) => item.name === stringValue(skill.name)))
+      .map((skill) => skillFromApi(skill))
+      .filter((skill): skill is SkillDefinition => Boolean(skill));
+    const nextSkills = [...addedSkills, ...mergedSkills];
+    const mergedMcps = mcps.map((item) => {
+      const payload = adminMcps.find((mcp) => stringValue(mcp.name) === item.name);
+      return payload ? mergeMcpFromApi(item, payload) : item;
+    });
+    const addedMcps = adminMcps
+      .filter((mcp) => !mergedMcps.some((item) => item.name === stringValue(mcp.name)))
+      .map((mcp) => mcpFromApi(mcp))
+      .filter((mcp): mcp is McpDefinition => Boolean(mcp));
+    const nextMcps = [...addedMcps, ...mergedMcps];
     setSkills((items) => {
       const merged = items.map((item) => {
         const payload = adminSkills.find((skill) => stringValue(skill.name) === item.name);
@@ -305,7 +351,8 @@ function App() {
         .filter((mcp): mcp is McpDefinition => Boolean(mcp));
       return [...additions, ...merged];
     });
-    setOpsTasks(governanceTasksFromApi(governanceTasks, operationsTasks));
+    setOpsTasks(nextGovernanceTasks);
+    setAssetDirectoryState(adminAssetsFromApi(adminAssets, assetDirectory.length ? assetDirectory : buildUnifiedAssets(nextSkills, nextMcps, nextGovernanceTasks)));
     setReleaseActivities(releaseActivitiesFromApi(governanceActivities, initialReleaseActivities));
     setOrganizationProfiles(organizations);
     setAccounts(nextAccounts);
@@ -883,7 +930,7 @@ function App() {
   if (path === '/skills/library') page = <SkillLibraryPage skills={skills} onNavigate={navigate} onInstall={installSkill} recentlyInstalledSkillName={recentlyInstalledSkillName} />;
   if (selectedShowcaseSkill) page = <SkillShowcasePage skill={selectedShowcaseSkill} onNavigate={navigate} onInstall={installSkill} onTry={trySkill} />;
   if (path === '/admin') page = <><AdminNav path={path} onNavigate={navigate} /><AdminWorkbenchPage tasks={opsTasks} skills={skills} mcps={mcps} platformMetrics={platformMetricsState} releaseActivities={releaseActivities} onNavigate={navigate} /></>;
-  if (path === '/admin/assets') page = <><AdminNav path={path} onNavigate={navigate} /><AssetDirectoryPage assets={assetDirectory} onNavigate={navigate} onCreateSkill={() => navigate('/admin/skills/new')} onCreateMcp={() => navigate('/admin/mcps/new')} /></>;
+  if (path === '/admin/assets') page = <><AdminNav path={path} onNavigate={navigate} /><AssetDirectoryPage assets={assetDirectoryState} onNavigate={navigate} onCreateSkill={() => navigate('/admin/skills/new')} onCreateMcp={() => navigate('/admin/mcps/new')} /></>;
   if (path === '/admin/pipeline') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReleasePage tasks={opsTasks} skills={skills} mcps={mcps} platformMetrics={platformMetricsState} platformSkillMetrics={platformSkillMetricsState} platformOrganizationMetrics={platformOrganizationMetricsState} platformAlerts={platformAlertsState} releaseActivities={releaseActivities} onPublishTask={publishGovernanceTask} /></>;
   if (path === '/admin/operations-center') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReviewPage tasks={opsTasks} accounts={accounts} roles={roles} skills={skills} organizationProfiles={organizationProfiles} actionGovernanceCases={actionGovernanceCasesState} permissionAuditLogs={permissionAuditLogs} onNavigate={navigate} onCreateAccount={createAccount} onSaveAccountPermissions={saveAccountPermissions} onSaveProfile={saveOrganizationProfile} onBulkGrantSkills={bulkGrantSkills} onBulkDenySkills={bulkDenySkills} onExportPermissionReport={exportPermissionReport} onSaveRoleTemplate={saveRoleTemplate} onApproveTask={approveGovernanceTask} /></>;
   if (path === '/admin/permissions') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReviewPage tasks={opsTasks} accounts={accounts} roles={roles} skills={skills} organizationProfiles={organizationProfiles} actionGovernanceCases={actionGovernanceCasesState} permissionAuditLogs={permissionAuditLogs} onNavigate={navigate} onCreateAccount={createAccount} onSaveAccountPermissions={saveAccountPermissions} onSaveProfile={saveOrganizationProfile} onBulkGrantSkills={bulkGrantSkills} onBulkDenySkills={bulkDenySkills} onExportPermissionReport={exportPermissionReport} onSaveRoleTemplate={saveRoleTemplate} onApproveTask={approveGovernanceTask} /></>;

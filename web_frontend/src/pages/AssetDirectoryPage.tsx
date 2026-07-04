@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { LifecycleStage, stageLabel, UnifiedAssetRecord } from '../managementData';
+import { buildLifecycleMetrics, LifecycleStage, lifecycleStageOptions, stageLabel, UnifiedAssetRecord } from '../managementData';
 import { MetricStrip, PageHeader, StatusBadge } from '../components/ManagementUi';
 
 type Props = {
@@ -15,6 +15,7 @@ export function AssetDirectoryPage({ assets, onNavigate, onCreateSkill, onCreate
   const [query, setQuery] = useState('');
   const [assetType, setAssetType] = useState<'全部类型' | 'skill' | 'mcp'>('全部类型');
   const [stage, setStage] = useState<'全部阶段' | LifecycleStage>('全部阶段');
+  const lifecycleMetrics = buildLifecycleMetrics(assets);
 
   const filteredAssets = useMemo(() => assets.filter((asset) => {
     const haystack = `${asset.displayName}${asset.name}${asset.description}${asset.failureSummary || ''}${asset.dependencySummary}`.toLowerCase();
@@ -32,10 +33,10 @@ export function AssetDirectoryPage({ assets, onNavigate, onCreateSkill, onCreate
       actions={<><button className="secondary-action" type="button" onClick={onCreateMcp}>＋ 接入 MCP</button><button className="primary-action" type="button" onClick={onCreateSkill}>＋ 新建 Skill</button></>}
     />
     <MetricStrip items={[
-      { label: '能力资产总数', value: assets.length },
-      { label: '测试中', value: assets.filter((asset) => asset.lifecycleStage === 'testing').length },
-      { label: '待提审', value: assets.filter((asset) => asset.lifecycleStage === 'review').length },
-      { label: '可发布', value: assets.filter((asset) => asset.lifecycleStage === 'publish').length, tone: 'success' },
+      { label: '能力资产总数', value: lifecycleMetrics.total },
+      { label: '测试中', value: lifecycleMetrics.testing },
+      { label: '待提审', value: lifecycleMetrics.review },
+      { label: '可发布', value: lifecycleMetrics.publish, tone: 'success' },
     ]} />
     <div className="filter-bar">
       <label className="search-box"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、标识、阻塞原因或依赖摘要" /></label>
@@ -46,7 +47,7 @@ export function AssetDirectoryPage({ assets, onNavigate, onCreateSkill, onCreate
       </select>
       <select value={stage} onChange={(event) => setStage(event.target.value as '全部阶段' | LifecycleStage)}>
         <option>全部阶段</option>
-        {Object.entries(stageLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        {lifecycleStageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
       </select>
       <span className="filter-result">显示 {filteredAssets.length} / {assets.length}</span>
     </div>

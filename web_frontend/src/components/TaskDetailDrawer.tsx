@@ -1,4 +1,4 @@
-import { OperationsTask, ReleaseActivity, releaseStatusLabel } from '../managementData';
+import { OperationsTask, ReleaseActivity, stageLabel, taskLifecycleStage } from '../managementData';
 
 type Props = {
   task: OperationsTask;
@@ -26,7 +26,7 @@ export function TaskDetailDrawer({ task, activities, onClose }: Props) {
     </div>
 
     <div className="permission-profile-grid">
-      <div><span>当前状态</span><strong>{releaseStatusLabel[task.releaseStatus]}</strong><small>{task.type === 'skill' ? 'Skill 任务' : 'MCP 子任务'} · {task.priority}</small></div>
+      <div><span>当前状态</span><strong>{stageLabel[taskLifecycleStage(task)]}</strong><small>{task.type === 'skill' ? 'Skill 任务' : 'MCP 子任务'} · {task.priority}</small></div>
       <div><span>负责人</span><strong>{task.owner}</strong><small>更新时间：{task.updatedAt}</small></div>
       <div><span>自动测试</span><strong>{task.autoTestPassRate}</strong><small>{task.failureReason || '当前无失败原因'}</small></div>
       <div><span>关联实体</span><strong>{task.entityName}</strong><small>{task.parentTaskId ? `父任务：${task.parentTaskId}` : '当前为主任务'}</small></div>

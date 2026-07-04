@@ -693,6 +693,11 @@ export const stageLabel: Record<LifecycleStage, string> = {
   blocked: '阻塞',
 };
 
+export const lifecycleStageOptions = Object.entries(stageLabel).map(([value, label]) => ({
+  value: value as LifecycleStage,
+  label,
+}));
+
 export const lifecycleActionByStage: Record<LifecycleStage, string> = {
   draft: '先补齐业务目标和草案，再进入测试。',
   testing: '继续运行示例输入、检查依赖和定位失败原因。',
@@ -774,6 +779,24 @@ export const tasksForAsset = (
   const childTasks = tasks.filter((task) => Boolean(task.parentTaskId && directTaskIds.has(task.parentTaskId)));
   return [...directTasks, ...childTasks];
 };
+
+export const taskLifecycleStage = (
+  task: Pick<OperationsTask, 'releaseStatus' | 'failureReason' | 'blockedBy'>,
+) => lifecycleStageForReleaseStatus(task.releaseStatus, task.failureReason || task.blockedBy);
+
+export const countTasksByLifecycleStage = (
+  tasks: Pick<OperationsTask, 'releaseStatus' | 'failureReason' | 'blockedBy'>[],
+  stage: LifecycleStage,
+) => tasks.filter((task) => taskLifecycleStage(task) === stage).length;
+
+export const buildLifecycleMetrics = (
+  assets: Pick<UnifiedAssetRecord, 'lifecycleStage'>[],
+) => ({
+  total: assets.length,
+  testing: assets.filter((asset) => asset.lifecycleStage === 'testing').length,
+  review: assets.filter((asset) => asset.lifecycleStage === 'review').length,
+  publish: assets.filter((asset) => asset.lifecycleStage === 'publish').length,
+});
 
 const ownerForEntity = (
   type: AssetType,

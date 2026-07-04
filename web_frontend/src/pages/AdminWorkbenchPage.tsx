@@ -1,4 +1,4 @@
-import { McpDefinition, OperationsTask, PlatformMetrics, ReleaseActivity, ReleaseStatus, SkillDefinition, releaseStatusLabel } from '../managementData';
+import { countTasksByLifecycleStage, LifecycleStage, McpDefinition, OperationsTask, PlatformMetrics, ReleaseActivity, SkillDefinition, stageLabel, taskLifecycleStage } from '../managementData';
 import { MetricStrip, PageHeader } from '../components/ManagementUi';
 import { TaskDetailDrawer } from '../components/TaskDetailDrawer';
 import { useMemo, useState } from 'react';
@@ -12,8 +12,6 @@ type Props = {
   onNavigate: (path: string) => void;
 };
 
-const countByStage = (tasks: OperationsTask[], stage: ReleaseStatus) => tasks.filter((task) => task.stage === stage).length;
-
 const releaseActionLabel: Record<ReleaseActivity['action'], string> = {
   submitted_for_review: '提交治理',
   review_approved: '审核通过',
@@ -25,14 +23,14 @@ const releaseActionLabel: Record<ReleaseActivity['action'], string> = {
 export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, releaseActivities, onNavigate }: Props) {
   const [scope, setScope] = useState('全部任务');
   const [selectedTaskId, setSelectedTaskId] = useState(tasks[0]?.id || '');
-  const blockedTasks = tasks.filter((task) => task.stage === 'blocked_by_dependency');
-  const reviewTasks = tasks.filter((task) => task.stage === 'ready_for_review');
-  const publishTasks = tasks.filter((task) => task.stage === 'ready_to_publish');
+  const isLifecycleTask = (task: OperationsTask, stage: LifecycleStage) => taskLifecycleStage(task) === stage;
+  const blockedTasks = tasks.filter((task) => isLifecycleTask(task, 'blocked'));
+  const publishTasks = tasks.filter((task) => isLifecycleTask(task, 'publish'));
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
   const visibleTasks = useMemo(() => {
-    if (scope === '待审核') return tasks.filter((task) => task.stage === 'ready_for_review');
-    if (scope === '待发布') return tasks.filter((task) => task.stage === 'ready_to_publish');
-    if (scope === '依赖阻塞') return tasks.filter((task) => task.stage === 'blocked_by_dependency');
+    if (scope === '待审核') return tasks.filter((task) => isLifecycleTask(task, 'review'));
+    if (scope === '待发布') return tasks.filter((task) => isLifecycleTask(task, 'publish'));
+    if (scope === '依赖阻塞') return tasks.filter((task) => isLifecycleTask(task, 'blocked'));
     return tasks;
   }, [tasks, scope]);
   const findTaskByActivity = (activity: ReleaseActivity) => tasks.find((task) => (
@@ -70,10 +68,10 @@ export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, relea
       actions={<><button className="secondary-action" type="button" onClick={() => onNavigate('/admin/pipeline')}>查看发布流水线</button><button className="primary-action" type="button" onClick={() => onNavigate('/admin/assets')}>进入统一目录</button></>}
     />
     <MetricStrip items={[
-      { label: '待处理治理事项', value: countByStage(tasks, 'ready_for_review') + countByStage(tasks, 'ready_to_publish') },
+      { label: '待处理治理事项', value: countTasksByLifecycleStage(tasks, 'review') + countTasksByLifecycleStage(tasks, 'publish') },
       { label: '集团已发布 Skill', value: skills.filter((item) => item.releaseStatus === 'published').length, tone: 'success' },
-      { label: '测试中能力', value: countByStage(tasks, 'testing') },
-      { label: '依赖阻塞', value: countByStage(tasks, 'blocked_by_dependency'), tone: 'danger' },
+      { label: '测试中能力', value: countTasksByLifecycleStage(tasks, 'testing') },
+      { label: '依赖阻塞', value: countTasksByLifecycleStage(tasks, 'blocked'), tone: 'danger' },
     ]} />
 
     <section className="workbench-hero">
@@ -109,7 +107,7 @@ export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, relea
           {visibleTasks.map((task) => <article key={task.id} className={`task-card stage-${task.stage} task-card-clickable ${selectedTask?.id === task.id ? 'task-card-selected' : ''}`} onClick={() => setSelectedTaskId(task.id)}>
             <div className="task-card-top">
               <div><span>{task.type === 'skill' ? 'Skill 任务' : 'MCP 子任务'} · {task.priority}</span><strong>{task.title}</strong></div>
-              <i>{releaseStatusLabel[task.releaseStatus]}</i>
+              <i>{stageLabel[taskLifecycleStage(task)]}</i>
             </div>
             <p>{task.summary}</p>
             <div className="task-card-meta">
