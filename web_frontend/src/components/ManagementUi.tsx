@@ -21,6 +21,95 @@ export function PrototypeToast({ text }: { text: string }) {
   return text ? <div className="prototype-toast">{text}</div> : null;
 }
 
+export function DetailSummaryPanel({ title, description, items }: { title: string; description: string; items: { label: string; value: string; description: string }[] }) {
+  return <section className="panel-card">
+    <div className="section-toolbar">
+      <div>
+        <span>SUMMARY</span>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+    </div>
+    <div className="generated-summary-grid">
+      {items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.value}</strong><p>{item.description}</p></div>)}
+    </div>
+  </section>;
+}
+
+export function FocusAreaPanel({ title, description, items }: { title: string; description: string; items: { label: string; value: string; description: string }[] }) {
+  return <section className="panel-card asset-stage-panel">
+    <div className="section-toolbar">
+      <div>
+        <span>NOW</span>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+    </div>
+    <div className="generated-summary-grid">
+      {items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.value}</strong><p>{item.description}</p></div>)}
+    </div>
+  </section>;
+}
+
+export function DetailTestPanel({ title, description, actionLabel, onAction, children }: { title: string; description: string; actionLabel: string; onAction: () => void; children: ReactNode }) {
+  return <section className="panel-card skill-simple-test">
+    <div className="section-toolbar">
+      <div>
+        <span>STEP 3</span>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      <button className="primary-action" type="button" onClick={onAction}>{actionLabel}</button>
+    </div>
+    {children}
+  </section>;
+}
+
+export function RecentActivityPanel({ title, description, items, emptyText }: { title: string; description: string; items: { id: string; detail: string }[]; emptyText: string }) {
+  return <section className="panel-card">
+    <div className="section-toolbar">
+      <div>
+        <span>RECENT</span>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+    </div>
+    <div className="release-diff-list">
+      {items.length ? items.map((item) => <span key={item.id}>{item.detail}</span>) : <span>{emptyText}</span>}
+    </div>
+  </section>;
+}
+
+export function StageActionPanel({
+  title,
+  description,
+  primaryLabel,
+  onPrimary,
+  secondaryLabel,
+  onSecondary,
+}: {
+  title: string;
+  description: string;
+  primaryLabel: string;
+  onPrimary: () => void;
+  secondaryLabel: string;
+  onSecondary: () => void;
+}) {
+  return <section className="panel-card">
+    <div className="section-toolbar">
+      <div>
+        <span>ACTION</span>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      <div className="review-buttons">
+        <button className="secondary-action" type="button" onClick={onSecondary}>{secondaryLabel}</button>
+        <button className="primary-action" type="button" onClick={onPrimary}>{primaryLabel}</button>
+      </div>
+    </div>
+  </section>;
+}
+
 type LifecycleOverviewPanelProps = {
   summaryTitle: string;
   summaryDescription: string;
@@ -41,18 +130,7 @@ export function LifecycleOverviewPanel({
   focusAreas,
 }: LifecycleOverviewPanelProps) {
   return <>
-    <section className="panel-card">
-      <div className="section-toolbar">
-        <div>
-          <span>SUMMARY</span>
-          <h3>{summaryTitle}</h3>
-          <p>{summaryDescription}</p>
-        </div>
-      </div>
-      <div className="generated-summary-grid">
-        {summaryItems.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.value}</strong><p>{item.description}</p></div>)}
-      </div>
-    </section>
+    <DetailSummaryPanel title={summaryTitle} description={summaryDescription} items={summaryItems} />
 
     <section className="panel-card">
       <div className="section-toolbar">
@@ -68,18 +146,6 @@ export function LifecycleOverviewPanel({
         </div>)}
       </div>
     </section>
-
-    <section className="panel-card asset-stage-panel">
-      <div className="section-toolbar">
-        <div>
-          <span>NOW</span>
-          <h3>当前阶段主操作</h3>
-          <p>{currentStageAction}</p>
-        </div>
-      </div>
-      <div className="generated-summary-grid">
-        {focusAreas.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.value}</strong><p>{item.description}</p></div>)}
-      </div>
-    </section>
+    <FocusAreaPanel title="当前阶段主操作" description={currentStageAction} items={focusAreas} />
   </>;
 }

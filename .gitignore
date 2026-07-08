@@ -28,5 +28,6 @@ chat_sessions.db
 # Frontend Artifacts
 web_frontend/node_modules/
 web_frontend/dist/
+web_frontend/.tmp/
 web_frontend/*.tsbuildinfo
 .playwright-cli/

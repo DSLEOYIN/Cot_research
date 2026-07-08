@@ -110,6 +110,34 @@ def test_login_page_and_app_auth_gate_protect_admin_routes():
     assert "退出登录" in shell
 
 
+def test_login_page_shows_environment_status_and_demo_account_source():
+    app = read(SRC / "App.tsx")
+    login_page = read(SRC / "pages" / "LoginPage.tsx")
+    client = read(SRC / "api" / "client.ts")
+
+    assert "getEnvironmentStatus" in client
+    assert "'/api/system/environment'" in client
+    assert "environmentStatus" in app
+    assert "mockApiAvailable" in app
+    assert "isMockMode" in app
+    assert "demoAccounts" in login_page
+    assert "环境状态" in login_page
+    assert "Mock API" in login_page
+    assert "演示模式" in login_page
+
+
+def test_frontend_defines_admin_smoke_test_targets():
+    app = read(SRC / "App.tsx")
+    tests = read(ROOT / "tests" / "test_web_frontend_contract.py")
+
+    assert "/login" in app
+    assert "/admin" in app
+    assert "/admin/assets" in app
+    assert "/admin/skills/" in app
+    assert "/admin/mcps/" in app
+    assert "smoke" in tests
+
+
 def test_app_hydrates_platform_mock_api_without_breaking_local_prototype_fallback():
     app = read(SRC / "App.tsx")
     review_page = read(SRC / "pages" / "AdminReviewPage.tsx")
@@ -147,8 +175,32 @@ def test_app_hydrates_platform_mock_api_without_breaking_local_prototype_fallbac
     assert "actionGovernanceCases={actionGovernanceCasesState}" in app
     assert "assets={assetDirectoryState}" in app
     assert "organizationProfiles.map" in review_page
-    assert "platformMetrics.monthlyActiveUsers" in release_page
-    assert "platformMetrics.monthlyActiveUsers" in workbench
+    assert "stageCounts" in release_page
+    assert "platformMetrics.riskAlerts" in release_page
+    assert "platformMetrics.monthlyActiveUsers" not in workbench
+
+
+def test_frontend_client_exposes_unified_task_and_asset_detail_apis():
+    client = read(SRC / "api" / "client.ts")
+
+    assert "AdminTaskPayload" in client
+    assert "AdminAssetDetailPayload" in client
+    assert "listAdminTasks" in client
+    assert "'/api/admin/tasks'" in client
+    assert "getAdminAssetDetail" in client
+    assert "`/api/admin/assets/${assetId}`" in client
+
+
+def test_frontend_client_exposes_unified_asset_action_apis():
+    client = read(SRC / "api" / "client.ts")
+
+    assert "AdminAssetActionPayload" in client
+    assert "testAdminAsset" in client
+    assert "`/api/admin/assets/${assetId}/test`" in client
+    assert "submitAdminAsset" in client
+    assert "`/api/admin/assets/${assetId}/submit`" in client
+    assert "publishAdminAsset" in client
+    assert "`/api/admin/assets/${assetId}/publish`" in client
 
 
 def test_organization_permission_page_saves_profile_changes_through_api():
@@ -167,7 +219,7 @@ def test_organization_permission_page_saves_profile_changes_through_api():
     assert "onSaveProfile" in review_page
     assert "授权变更已保存" in app
     assert "保存权限变更" in review_page
-    assert "账号目录" in review_page
+    assert "账号覆盖" in review_page
     assert "搜索账号" in review_page
     assert "组织筛选" in review_page
     assert "角色筛选" in review_page
@@ -196,7 +248,7 @@ def test_organization_permission_page_saves_profile_changes_through_api():
     assert "账号基础信息" in review_page
     assert "初始 Skill 覆盖" in review_page
     assert "onCreateAccount" in review_page
-    assert "账号目录表格" in review_page
+    assert "账号覆盖表格" in review_page
     assert "权限来源" in review_page
     assert "permissionSources" in review_page
     assert "组织默认能力" in review_page
@@ -235,6 +287,10 @@ def test_organization_permission_page_saves_profile_changes_through_api():
     assert "selectedIds.length > 0 ? accounts.filter" in review_page
     assert "组织树视图" in review_page
     assert "viewMode === 'organization'" in review_page
+    assert "运行与权限四视图" in review_page
+    assert "角色模板视图" in review_page
+    assert "账号覆盖视图" in review_page
+    assert "审计中心视图" in review_page
     assert "按组织汇总账号、角色与默认能力范围" in review_page
     assert "organizationDrafts" in review_page
     assert "toggleOrganizationDraftValue" in review_page
@@ -327,10 +383,67 @@ def test_unified_asset_directory_prioritizes_actionable_skill_and_mcp_records():
     assert "stageLabel[taskLifecycleStage(task)]" in workbench
     assert "taskLifecycleStage(task)" in drawer
     assert "stageLabel[taskLifecycleStage(task)]" in drawer
-    assert "resolveTaskRoute" in workbench
-    assert "task.entityName === skill.name" in workbench
-    assert "task.entityName === mcp.name" in workbench
-    assert "onNavigate(resolveTaskRoute(task))" in workbench
+    assert "resolveTaskRoute" in management_data
+    assert "resolveActivityRoute" in management_data
+    assert "task.entityName === skill.name" in management_data
+    assert "task.entityName === mcp.name" in management_data
+    assert "const taskRoute = (task: OperationsTask) => resolveTaskRoute(task, skills, mcps)" in workbench
+    assert "onNavigate(taskRoute(task))" in workbench
+
+
+def test_unified_asset_directory_supports_advanced_filters_grouping_and_empty_states():
+    asset_directory = read(SRC / "pages" / "AssetDirectoryPage.tsx")
+    css = read(SRC / "styles" / "app.css")
+
+    assert "风险等级" in asset_directory
+    assert "负责人" in asset_directory
+    assert "依赖状态" in asset_directory
+    assert "待处理状态" in asset_directory
+    assert "仅看我的待处理" in asset_directory
+    assert "按阶段分组" in asset_directory
+    assert "按类型分组" in asset_directory
+    assert "按风险分组" in asset_directory
+    assert "asset-directory-group" in asset_directory
+    assert "asset-directory-empty" in asset_directory
+    assert "暂无能力资产" in asset_directory
+    assert "未找到符合条件的能力资产" in asset_directory
+    assert "asset-directory-toolbar" in css
+    assert "asset-directory-group" in css
+    assert "asset-directory-empty" in css
+    assert "assetDirectoryAlertTone" in asset_directory
+    assert "tone-danger" in asset_directory
+    assert "tone-warning" in asset_directory
+    assert ".asset-directory-alert.tone-danger" in css
+    assert "每页显示" in asset_directory
+    assert "上一页" in asset_directory
+    assert "下一页" in asset_directory
+    assert "asset-directory-pagination" in asset_directory
+    assert "asset-directory-pagination" in css
+
+
+def test_workbench_aligns_to_asset_status_and_surfaces_recent_objects():
+    workbench = read(SRC / "pages" / "AdminWorkbenchPage.tsx")
+    app = read(SRC / "App.tsx")
+    css = read(SRC / "styles" / "app.css")
+    doc = read(ROOT / "doc" / "广汽集团AI一体化平台_开发文档.md")
+
+    assert "assets:" in workbench
+    assert "recentObjects" in workbench
+    assert "reviewReturnAssets" in workbench
+    assert "按资产阶段继续处理" in workbench
+    assert "最近我操作过的对象" in workbench
+    assert "审核退回待补充" in workbench
+    assert "依赖解锁后恢复测试" in workbench
+    assert "timelineActivityRoute" in workbench
+    assert "onNavigate(timelineActivityRoute(item))" in workbench
+    assert "workbench-recent-grid" in css
+    assert "review-return-list" in css
+    assert "timeline-activity-button" in css
+    assert "assets={assetDirectoryState}" in app
+    assert "- [x] 将工作台的任务面板与统一资产状态彻底对齐" in doc
+    assert "平台活跃与覆盖" not in workbench
+    assert "monthlyActiveUsers" not in workbench
+    assert "coverageOrganizations" not in workbench
 
 
 def test_skill_and_mcp_detail_pages_share_lifecycle_overview_component():
@@ -360,6 +473,54 @@ def test_skill_and_mcp_detail_pages_share_lifecycle_overview_component():
     assert "- [x] 将工作台、统一目录、详情页全部改为复用同一套生命周期状态工具" in doc
     assert "- [x] 接入真实统一资产 API" in doc
     assert "- [x] 为统一资产增加稳定字段" in doc
+    assert "DetailSummaryPanel" in management_ui
+    assert "FocusAreaPanel" in management_ui
+    assert "DetailTestPanel" in management_ui
+    assert "RecentActivityPanel" in management_ui
+    assert "DetailSummaryPanel" in skill_detail
+    assert "FocusAreaPanel" in skill_detail
+    assert "DetailTestPanel" in skill_detail
+    assert "RecentActivityPanel" in skill_detail
+    assert "DetailSummaryPanel" in mcp_detail
+    assert "FocusAreaPanel" in mcp_detail
+    assert "DetailTestPanel" in mcp_detail
+    assert "RecentActivityPanel" in mcp_detail
+    assert "提审资料完整性检查" in skill_detail
+    assert "completenessChecks" in skill_detail
+    assert "Schema 变更差异" in mcp_detail
+    assert "schemaDiffItems" in mcp_detail
+    assert "StageActionPanel" in management_ui
+    assert "StageActionPanel" in skill_detail
+    assert "StageActionPanel" in mcp_detail
+    assert "/admin/operations-center?asset=skill:" in skill_detail
+    assert "/admin/operations-center?asset=mcp:" in mcp_detail
+    assert "解除阻塞引导" in skill_detail
+    assert "解除阻塞引导" in mcp_detail
+    assert "currentStage === 'blocked'" in skill_detail
+    assert "currentStage === 'blocked'" in mcp_detail
+    assert "blockedGuidance" in skill_detail
+    assert "unblockGuidanceItems" in mcp_detail
+
+
+def test_operations_center_consumes_detail_context_asset_and_query_route():
+    app = read(SRC / "App.tsx")
+    review_page = read(SRC / "pages" / "AdminReviewPage.tsx")
+    route_hook = read(SRC / "useWorkspaceRoute.ts")
+    doc = read(ROOT / "doc" / "广汽集团AI一体化平台_开发文档.md")
+
+    assert "window.location.search" in route_hook
+    assert "const [pathname, search] = path.split('?')" in app
+    assert "new URLSearchParams(search || '')" in app
+    assert "searchParams.get('asset')" in app
+    assert "contextAsset={operationsCenterAsset}" in app
+    assert "从对象详情进入的治理配置" in review_page
+    assert "当前对象" in review_page
+    assert "风险等级" in review_page
+    assert "推荐配置动作" in review_page
+    assert "查看推荐配置视图" in review_page
+    assert "- [x] 让详情页中的“发布前治理配置”跳转到运行与权限页的对应位置" in doc
+    assert "- [x] 为阻塞态详情页提供专门的解除阻塞引导" in doc
+    assert "- [x] 为运行与权限页补充从对象详情反向进入的上下文信息" in doc
 
 
 def test_workflow_stays_open_until_answer_output_then_collapses():
@@ -446,6 +607,7 @@ def test_chat_input_guides_action_skill_requests_with_clear_placeholder():
 def test_result_renderer_builds_and_disposes_echarts_for_numeric_tables():
     renderer = read(SRC / "components" / "ResultRenderer.tsx")
     chart = read(SRC / "components" / "EChartsPanel.tsx")
+    runtime = read(SRC / "echartsRuntime.ts")
 
     assert "DataTable" in renderer
     assert "EChartsPanel" in renderer
@@ -453,12 +615,34 @@ def test_result_renderer_builds_and_disposes_echarts_for_numeric_tables():
     assert "parseBlocks" in renderer
     assert "block.type === 'table'" in renderer
     assert "categoryColumnIndex" in renderer
-    assert "echarts.init" in chart
+    assert "import('../echartsRuntime')" in chart
+    assert "initEChart" in chart
+    assert "import * as echarts from 'echarts/core'" in runtime
+    assert "BarChart" in runtime
+    assert "LineChart" in runtime
+    assert "GridComponent" in runtime
+    assert "LegendComponent" in runtime
+    assert "TooltipComponent" in runtime
+    assert "CanvasRenderer" in runtime
+    assert "echarts.use" in runtime
+    assert "echarts.init" in runtime
+    assert "import('echarts').then" not in chart
     assert "ResizeObserver" in chart
     assert "chart.dispose()" in chart
     assert "chartRef" in chart
     assert "dataKey" in chart
     assert "}, []);" in chart
+
+
+def test_frontend_bundle_size_check_is_available_for_regular_build_reviews():
+    package_json = read(ROOT / "web_frontend" / "package.json")
+    bundle_check = read(ROOT / "web_frontend" / "scripts" / "checkBundleSize.mjs")
+
+    assert '"check:bundle"' in package_json
+    assert "MAX_JS_CHUNK_BYTES" in bundle_check
+    assert "500 * 1024" in bundle_check
+    assert "dist/assets" in bundle_check
+    assert "process.exitCode = 1" in bundle_check
 
 
 def test_result_renderer_formats_markdown_emphasis_and_lists():
@@ -668,15 +852,16 @@ def test_platform_details_surface_access_risk_gray_release_and_audit_context():
     assert "灰度范围" in mcp_detail
     assert "审计日志" in mcp_detail
     assert "高风险动作需审批" in mcp_detail
-    assert "platformMetrics.monthlyActiveUsers" in workbench
-    assert "platformMetrics.apiSuccessRate" in workbench
-    assert "platformMetrics.coverageOrganizations" in workbench
+    assert "platformMetrics.monthlyActiveUsers" not in workbench
+    assert "platformMetrics.apiSuccessRate" not in workbench
+    assert "platformMetrics.coverageOrganizations" not in workbench
 
 
 def test_review_and_release_pages_exist_as_separate_operations_views():
     app = read(SRC / "App.tsx")
     review_page = read(SRC / "pages" / "AdminReviewPage.tsx")
     release_page = read(SRC / "pages" / "AdminReleasePage.tsx")
+    doc = read(ROOT / "doc" / "广汽集团AI一体化平台_开发文档.md")
 
     assert "AdminReviewPage" in app
     assert "AdminReleasePage" in app
@@ -687,6 +872,14 @@ def test_review_and_release_pages_exist_as_separate_operations_views():
     assert "手动发布" in release_page
     assert "releaseActivities" in release_page
     assert "最近发布动作" in release_page
+    assert "assets: UnifiedAssetRecord[]" in release_page
+    assert "releaseAssets" in release_page
+    assert "onNavigate(asset.route)" in release_page
+    assert "查看对象详情" in release_page
+    assert "platformMetrics.monthlyActiveUsers" not in release_page
+    assert "- [x] 将发布流水线中的卡片点击统一跳回对象详情主操作" in doc
+    assert "- [x] 将发布流水线中的数据模型切换到统一资产视角" in doc
+    assert "- [x] 保留跨对象总览，但减少旧运营型表述" in doc
 
 
 def test_legacy_admin_review_and_release_routes_remain_compatible_aliases():
@@ -772,8 +965,8 @@ def test_release_page_surfaces_cost_failure_and_alert_operation_views():
     release_page = read(SRC / "pages" / "AdminReleasePage.tsx")
     css = read(SRC / "styles" / "app.css")
 
-    assert "能力运营指标" in release_page
-    assert "单次调用成本" in release_page
+    assert "发布优先级参考" in release_page
+    assert "统一资产规模" in release_page
     assert "失败原因分布" in release_page
     assert "组织覆盖进展" in release_page
     assert "告警与审计" in release_page
@@ -833,7 +1026,8 @@ def test_release_flow_records_skill_and_mcp_governance_activity():
     assert "releaseActivities" in workbench
     assert "releaseActionLabel" in release_page
     assert "releaseActionLabel" in workbench
-    assert "TaskDetailDrawer" in release_page
+    assert "findAssetByActivity" in release_page
+    assert "onNavigate(matchedAsset.route)" in release_page
     assert "TaskDetailDrawer" in workbench
     assert "timeline-activity-button" in release_page
     assert "timeline-activity-button" in workbench
@@ -897,7 +1091,8 @@ def test_platform_prototype_data_models_support_governance_metrics_and_access():
     assert "coverageOrganizations" in data
     assert "applicableOrganizations" in data
     assert "organizationProfiles.map" in review_page
-    assert "platformMetrics.monthlyActiveUsers" in release_page
+    assert "stageCounts" in release_page
+    assert "riskLabel" in release_page
     assert "skillGovernanceTags[skill.name]" in skills_page
     assert "读写属性" in mcps_page
 

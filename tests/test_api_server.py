@@ -126,6 +126,137 @@ def test_platform_prototype_api_exposes_unified_assets_with_stable_fields_and_pe
     assert restarted_asset["owner"]
 
 
+def test_unified_assets_are_sorted_by_stage_priority_then_type_and_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    assets = client.get("/api/admin/assets")
+
+    assert assets.status_code == 200
+    payload = assets.json()
+    assert [item["asset_id"] for item in payload[:4]] == [
+        "mcp:inventory_snapshot_mcp",
+        "skill:global_policy_watch",
+        "mcp:sql_executor",
+        "mcp:knowledge_retrieval",
+    ]
+    assert payload[0]["current_stage"] == "review"
+    assert payload[1]["current_stage"] == "publish"
+    assert payload[2]["asset_type"] == "mcp"
+    assert payload[2]["current_stage"] == "published"
+    assert payload[3]["current_stage"] == "published"
+
+
+def test_admin_unified_tasks_endpoint_exposes_asset_aligned_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    tasks = client.get("/api/admin/tasks")
+
+    assert tasks.status_code == 200
+    payload = tasks.json()
+    inventory_task = next(item for item in payload if item["task_id"] == "mcp-task-014")
+    assert inventory_task["task_type"] == "mcp"
+    assert inventory_task["asset_id"] == "mcp:inventory_snapshot_mcp"
+    assert inventory_task["asset_type"] == "mcp"
+    assert inventory_task["current_stage"] == "review"
+    assert inventory_task["action_url"] == "/admin/mcps/inventory_snapshot_mcp"
+    assert inventory_task["parent_task_id"] == "skill-task-001"
+    assert inventory_task["owner"] == "运维-王敏"
+
+
+def test_admin_asset_detail_endpoint_returns_asset_detail_tasks_and_activities(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    skill_detail = client.get("/api/admin/assets/skill:global_policy_watch")
+    mcp_detail = client.get("/api/admin/assets/mcp:inventory_snapshot_mcp")
+    missing = client.get("/api/admin/assets/skill:not_exists")
+
+    assert skill_detail.status_code == 200
+    assert skill_detail.json()["asset"]["asset_id"] == "skill:global_policy_watch"
+    assert skill_detail.json()["asset"]["current_stage"] == "publish"
+    assert skill_detail.json()["detail"]["displayName"] == "海外政策追踪"
+    assert skill_detail.json()["detail"]["asset_type"] == "skill"
+    assert skill_detail.json()["tasks"][0]["asset_id"] == "skill:global_policy_watch"
+    assert skill_detail.json()["activities"][0]["entityType"] == "skill"
+
+    assert mcp_detail.status_code == 200
+    assert mcp_detail.json()["asset"]["asset_id"] == "mcp:inventory_snapshot_mcp"
+    assert mcp_detail.json()["detail"]["displayName"] == "库存快照连接器"
+    assert mcp_detail.json()["detail"]["asset_type"] == "mcp"
+    assert mcp_detail.json()["tasks"][0]["task_id"] == "mcp-task-014"
+
+    assert missing.status_code == 404
+
+
+def test_admin_asset_action_endpoints_support_test_submit_and_publish(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    skill_test = client.post("/api/admin/assets/skill:data_query/test", json={"query": "本月销量"})
+    mcp_test = client.post("/api/admin/assets/mcp:inventory_snapshot_mcp/test")
+    submitted = client.post("/api/admin/assets/skill:data_query/submit")
+    published = client.post("/api/admin/assets/mcp:inventory_snapshot_mcp/publish")
+    missing_action = client.post("/api/admin/assets/skill:not_exists/test")
+
+    assert skill_test.status_code == 200
+    assert skill_test.json()["asset_id"] == "skill:data_query"
+    assert skill_test.json()["action"] == "test"
+    assert skill_test.json()["status"] == "passed"
+
+    assert mcp_test.status_code == 200
+    assert mcp_test.json()["asset_id"] == "mcp:inventory_snapshot_mcp"
+    assert mcp_test.json()["action"] == "test"
+    assert mcp_test.json()["status"] == "passed"
+
+    assert submitted.status_code == 200
+    assert submitted.json()["asset"]["asset_id"] == "skill:data_query"
+    assert submitted.json()["asset"]["current_stage"] == "review"
+    assert submitted.json()["result"]["task"]["entityName"] == "data_query"
+
+    assert published.status_code == 200
+    assert published.json()["asset"]["asset_id"] == "mcp:inventory_snapshot_mcp"
+    assert published.json()["asset"]["current_stage"] == "published"
+    assert published.json()["result"]["task"]["releaseStatus"] == "published"
+
+    assert missing_action.status_code == 404
+
+
+def test_unified_assets_reflect_governance_publish_and_health_check_mutations(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    db_path = tmp_path / "chat.db"
+    app = create_app(db_path=db_path)
+    client = TestClient(app)
+
+    published = client.post("/api/admin/governance/tasks/skill-task-002/publish")
+    health_checked = client.post("/api/admin/mcps/inventory_snapshot_mcp/health-check")
+    assets = client.get("/api/admin/assets")
+
+    assert published.status_code == 200
+    assert health_checked.status_code == 200
+    assert assets.status_code == 200
+
+    published_skill = next(item for item in assets.json() if item["asset_id"] == "skill:global_policy_watch")
+    checked_mcp = next(item for item in assets.json() if item["asset_id"] == "mcp:inventory_snapshot_mcp")
+
+    assert published_skill["release_status"] == "published"
+    assert published_skill["current_stage"] == "published"
+    assert published_skill["action_url"] == "/admin/skills/global_policy_watch"
+    assert checked_mcp["status"] == "ready_for_review"
+    assert checked_mcp["current_stage"] == "review"
+    assert checked_mcp["dependency_status"] == "被 1 个 Skill 引用"
+
+
 def test_platform_prototype_api_supports_governance_mutation_dry_runs(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.setenv("MOCK_ENABLED", "true")
@@ -579,6 +710,36 @@ def test_mock_auth_login_and_account_skill_permission_overrides(tmp_path, monkey
     assert update.status_code == 200
     assert "请假申请" in fetched.json()["effectiveSkills"]
     assert "内部数据与联网分析" not in fetched.json()["effectiveSkills"]
+
+
+def test_environment_status_endpoint_reports_mock_mode_and_demo_accounts(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    status = client.get("/api/system/environment")
+
+    assert status.status_code == 200
+    assert status.json()["mockApiAvailable"] is True
+    assert status.json()["isMockMode"] is True
+    assert status.json()["defaultLoginRoute"] == "/login"
+    assert status.json()["demoAccounts"][0]["username"] == "platform_admin"
+
+
+def test_login_returns_invalid_credentials_code_and_permission_denied_code(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.setenv("MOCK_ENABLED", "true")
+    app = create_app(db_path=tmp_path / "chat.db")
+    client = TestClient(app)
+
+    invalid = client.post("/api/auth/login", json={"username": "platform_admin", "password": "wrong"})
+    denied = client.post("/api/auth/login", json={"username": "chen_sales", "password": "sales123"})
+
+    assert invalid.status_code == 401
+    assert invalid.json()["detail"]["code"] == "invalid_credentials"
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "admin_access_denied"
 
 
 def test_mock_admin_can_create_account_with_organization_role_and_skill_overrides(tmp_path, monkeypatch):

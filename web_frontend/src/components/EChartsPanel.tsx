@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { ECharts } from 'echarts';
+import type { ECharts } from 'echarts/core';
 
 export type ChartData = {
   categories: string[];
@@ -25,9 +25,9 @@ export function EChartsPanel({ data }: Props) {
     let resizeObserver: ResizeObserver | null = null;
     let mountedElement: HTMLDivElement | null = chartElement.current;
 
-    void import('echarts').then((echarts) => {
+    void import('../echartsRuntime').then(({ initEChart }) => {
       if (disposed || !mountedElement) return;
-      const chart = echarts.init(mountedElement);
+      const chart = initEChart(mountedElement);
       chartRef.current = chart;
       resizeObserver = new ResizeObserver(() => chart.resize());
       resizeObserver.observe(mountedElement);

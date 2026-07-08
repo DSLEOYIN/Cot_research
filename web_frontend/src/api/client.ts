@@ -114,9 +114,30 @@ export type LoginResponse = {
   account: AccountPermissionProfile;
 };
 
+export type EnvironmentStatus = {
+  appMode: string;
+  mockApiAvailable: boolean;
+  isMockMode: boolean;
+  defaultLoginRoute: string;
+  demoAccounts: {
+    username: string;
+    displayName: string;
+    passwordHint: string;
+    canAccessAdmin: boolean;
+  }[];
+};
+
 export type AdminSkillPayload = Record<string, unknown>;
 export type AdminMcpPayload = Record<string, unknown>;
 export type AdminAssetPayload = Record<string, unknown>;
+export type AdminTaskPayload = Record<string, unknown>;
+export type AdminAssetDetailPayload = {
+  asset: AdminAssetPayload;
+  detail: Record<string, unknown>;
+  tasks: AdminTaskPayload[];
+  activities: ReleaseActivityPayload[];
+};
+export type AdminAssetActionPayload = Record<string, unknown>;
 export type PlatformMetricsPayload = Record<string, unknown>;
 export type ActionGovernancePayload = Record<string, unknown>;
 export type GovernanceTaskPayload = Record<string, unknown>;
@@ -148,6 +169,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!response.ok) {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const payload = await response.json() as { detail?: string | { code?: string; message?: string } };
+      if (typeof payload.detail === 'string') {
+        throw new Error(payload.detail || `HTTP ${response.status}`);
+      }
+      if (payload.detail && typeof payload.detail === 'object') {
+        const code = payload.detail.code || `HTTP_${response.status}`;
+        const message = payload.detail.message || `HTTP ${response.status}`;
+        throw new Error(`${code}: ${message}`);
+      }
+    }
     const detail = await response.text();
     throw new Error(detail || `HTTP ${response.status}`);
   }
@@ -161,6 +194,7 @@ export const api = {
   login: (username: string, password: string) =>
     request<LoginResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  getEnvironmentStatus: () => request<EnvironmentStatus>('/api/system/environment'),
   getCurrentAccount: (accountId: string) => request<AccountPermissionProfile>(`/api/auth/me?account_id=${encodeURIComponent(accountId)}`),
   listSessions: () => request<ChatSession[]>('/api/sessions'),
   createSession: (title?: string) =>
@@ -192,6 +226,14 @@ export const api = {
     request<AccountPermissionProfile>(`/api/admin/accounts/${accountId}/permissions`, { method: 'PATCH', body: JSON.stringify(payload) }),
   listAdminSkills: () => request<AdminSkillPayload[]>('/api/admin/skills'),
   listAdminAssets: () => request<AdminAssetPayload[]>('/api/admin/assets'),
+  listAdminTasks: () => request<AdminTaskPayload[]>('/api/admin/tasks'),
+  getAdminAssetDetail: (assetId: string) => request<AdminAssetDetailPayload>(`/api/admin/assets/${assetId}`),
+  testAdminAsset: (assetId: string, payload: AdminAssetActionPayload = {}) =>
+    request<AdminAssetActionPayload>(`/api/admin/assets/${assetId}/test`, { method: 'POST', body: JSON.stringify(payload) }),
+  submitAdminAsset: (assetId: string) =>
+    request<AdminAssetActionPayload>(`/api/admin/assets/${assetId}/submit`, { method: 'POST' }),
+  publishAdminAsset: (assetId: string) =>
+    request<AdminAssetActionPayload>(`/api/admin/assets/${assetId}/publish`, { method: 'POST' }),
   getAdminSkill: (skillId: string) => request<AdminSkillPayload>(`/api/admin/skills/${skillId}`),
   createAdminSkill: (payload: AdminSkillPayload) =>
     request<AdminSkillPayload>('/api/admin/skills', { method: 'POST', body: JSON.stringify(payload) }),

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { lifecycleActionByStage, lifecycleStageForReleaseStatus, LifecycleStage, OperationsTask, ReleaseActivity, SkillDefinition, skillGovernanceTags, stageLabel, tasksForAsset } from '../managementData';
-import { LifecycleOverviewPanel, PageHeader, PrototypeToast, StatusBadge } from '../components/ManagementUi';
+import { DetailSummaryPanel, DetailTestPanel, LifecycleOverviewPanel, PageHeader, PrototypeToast, RecentActivityPanel, StageActionPanel, StatusBadge } from '../components/ManagementUi';
 
 type Props = {
   skill: SkillDefinition;
@@ -43,6 +43,18 @@ export function SkillDetailPage({ skill, tasks, recentActivities, onNavigate, on
     { label: '发布检查清单', value: '版本差异 / 回滚预案', description: '审核通过后在当前页完成发布确认，不再跨页跳转。' },
     { label: '运行记录', value: `${recentActivities.length} 条最近动作`, description: '回看提交治理、审核、发布和依赖变化。' },
   ];
+  const completenessChecks = [
+    { label: '业务说明', value: skillPrompt.length > 16 ? '已补齐' : '待补充', description: '确认业务目标、使用场景和期望输出是否足够清晰。' },
+    { label: '适用组织', value: governance?.applicableOrganizations.length ? '已补齐' : '待补充', description: '提审前需明确组织范围和授权边界。' },
+    { label: '依赖 MCP', value: skill.mcpTools.length ? '已补齐' : '待补充', description: '检查测试阶段需要暴露的依赖调用和失败定位。' },
+    { label: '风险说明', value: governance?.requiresApproval ? '已补齐' : '待确认', description: '动作权限、审批要求和回退策略会进入审核说明。' },
+  ];
+  const blockedGuidance = relatedTasks.find((task) => task.releaseStatus === 'blocked_by_dependency');
+  const unblockGuidanceItems = blockedGuidance ? [
+    { label: '当前阻塞', value: blockedGuidance.blockedBy || blockedGuidance.failureReason || '等待依赖解锁', description: '先明确外部依赖、白名单或提审资料缺口。' },
+    { label: '建议动作', value: '转到运行与权限补齐治理配置', description: '优先核对组织授权、审批模式和账号级覆盖，再恢复测试。' },
+    { label: '恢复条件', value: '依赖解锁后重新运行测试', description: '阻塞解除后回到当前页执行一键测试与提审。' },
+  ] : [];
 
   const notify = (text: string) => { setToast(text); window.setTimeout(() => setToast(''), 2200); };
 
@@ -84,7 +96,7 @@ export function SkillDetailPage({ skill, tasks, recentActivities, onNavigate, on
     />
 
     <div className="skill-simple-layout">
-      {/* 阶段状态 / 当前阶段主操作 / 影响组织与风险提示由 LifecycleOverviewPanel 统一渲染 */}
+      {/* 阶段状态 / 当前阶段主操作 / 影响组织与风险提示由 LifecycleOverviewPanel 统一渲染；FocusAreaPanel 由该组件内部复用。 */}
       <LifecycleOverviewPanel
         summaryTitle="影响组织与风险提示"
         summaryDescription="组织与权限从开发主流程降级为只读提示，真正的授权配置放到发布前治理配置中处理。"
@@ -94,6 +106,19 @@ export function SkillDetailPage({ skill, tasks, recentActivities, onNavigate, on
         stageSteps={stageSteps}
         focusAreas={focusAreas}
       />
+      <StageActionPanel
+        title="当前阶段操作"
+        description="统一主操作密度：先在详情页完成测试或提审，再按需跳到治理配置辅助区。"
+        primaryLabel="提交治理"
+        onPrimary={() => { onSubmitGovernance(skill); notify('已提交治理流程，等待人工复核'); }}
+        secondaryLabel="发布前治理配置"
+        onSecondary={() => onNavigate(`/admin/operations-center?asset=skill:${skill.name}`)}
+      />
+      {currentStage === 'blocked' && blockedGuidance ? <DetailSummaryPanel
+        title="解除阻塞引导"
+        description="当前对象处于阻塞态，先处理依赖与治理配置，再恢复测试和提审。"
+        items={unblockGuidanceItems}
+      /> : null}
 
       <section className="panel-card skill-prompt-builder">
         <div className="section-toolbar">
@@ -107,31 +132,24 @@ export function SkillDetailPage({ skill, tasks, recentActivities, onNavigate, on
         <textarea value={skillPrompt} onChange={(event) => setSkillPrompt(event.target.value)} placeholder="例如：我想做一个可以查询海外销量、生成趋势图，并解释异常波动原因的 Skill。" />
       </section>
 
-      <section className="panel-card skill-generated-draft">
-        <div className="section-toolbar">
-          <div>
-            <span>STEP 2</span>
-            <h3>AI 生成 Skill 草案</h3>
-            <p>这里只展示用户能判断的结果：这个 Skill 做什么、适合谁用、需要哪些权限。</p>
-          </div>
-        </div>
-        <div className="generated-summary-grid">
-          <div><span>生成的 Skill 草案</span><strong>业务能力说明</strong><p>{draftGenerated ? skillPrompt : skill.description}</p></div>
-          <div><span>适用组织</span><strong>{governance?.applicableOrganizations.join(' / ') || '待组织授权确认'}</strong><p>后续由组织与权限页控制开通范围。</p></div>
-          <div><span>数据域权限</span><strong>{skill.requirements?.join(' / ') || '无额外数据域'}</strong><p>需要访问的数据域会进入授权审核。</p></div>
-          <div><span>动作权限</span><strong>{governance?.writesData ? '包含写入动作' : '仅查询与分析'}</strong><p>{governance?.requiresApproval ? '需要组织审批后才能使用。' : '标准授权即可使用。'}</p></div>
-        </div>
-      </section>
+      <DetailSummaryPanel
+        title="AI 生成 Skill 草案"
+        description="这里只展示用户能判断的结果：这个 Skill 做什么、适合谁用、需要哪些权限。"
+        items={[
+          { label: '生成的 Skill 草案', value: '业务能力说明', description: draftGenerated ? skillPrompt : skill.description },
+          { label: '适用组织', value: governance?.applicableOrganizations.join(' / ') || '待组织授权确认', description: '后续由组织与权限页控制开通范围。' },
+          { label: '数据域权限', value: skill.requirements?.join(' / ') || '无额外数据域', description: '需要访问的数据域会进入授权审核。' },
+          { label: '动作权限', value: governance?.writesData ? '包含写入动作' : '仅查询与分析', description: governance?.requiresApproval ? '需要组织审批后才能使用。' : '标准授权即可使用。' },
+        ]}
+      />
 
-      <section className="panel-card skill-simple-test">
-        <div className="section-toolbar">
-          <div>
-            <span>STEP 3</span>
-            <h3>测试这个 Skill</h3>
-            <p>输入一个用户真实会问的问题，直接看大模型生成的 Skill 能不能跑通。</p>
-          </div>
-          <button className="primary-action" type="button" onClick={runTest}>运行测试</button>
-        </div>
+      <DetailSummaryPanel
+        title="提审资料完整性检查"
+        description="提交治理前先确认这几个必填项已经补齐，避免被退回补资料。"
+        items={completenessChecks}
+      />
+
+      <DetailTestPanel title="测试这个 Skill" description="输入一个用户真实会问的问题，直接看大模型生成的 Skill 能不能跑通。" actionLabel="运行测试" onAction={runTest}>
         <div className="simple-test-grid">
           <label>
             <span>测试问题</span>
@@ -151,20 +169,9 @@ export function SkillDetailPage({ skill, tasks, recentActivities, onNavigate, on
             </> : <div className="empty-console">等待一键测试</div>}
           </div>
         </div>
-      </section>
+      </DetailTestPanel>
 
-      <section className="panel-card">
-        <div className="section-toolbar">
-          <div>
-            <span>RECENT</span>
-            <h3>最近治理记录</h3>
-            <p>查看最近提交治理、发布或其他关键动作，方便回看当前版本状态。</p>
-          </div>
-        </div>
-        <div className="release-diff-list">
-          {recentActivities.length ? recentActivities.map((item) => <span key={item.id}>{item.detail}</span>) : <span>暂无治理动作</span>}
-        </div>
-      </section>
+      <RecentActivityPanel title="最近治理记录" description="查看最近提交治理、发布或其他关键动作，方便回看当前版本状态。" items={recentActivities.map((item) => ({ id: item.id, detail: item.detail }))} emptyText="暂无治理动作" />
 
       {showTechnicalPreview && <section className="panel-card skill-technical-preview">
         <div className="section-toolbar">

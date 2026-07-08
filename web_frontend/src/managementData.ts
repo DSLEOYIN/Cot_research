@@ -879,6 +879,44 @@ export const buildUnifiedAssets = (
   });
 };
 
+type RouteTask = Pick<OperationsTask, 'type' | 'entityName' | 'title'>;
+type RouteSkill = Pick<SkillDefinition, 'name' | 'displayName'>;
+type RouteMcp = Pick<McpDefinition, 'name' | 'displayName'>;
+type RouteAsset = Pick<UnifiedAssetRecord, 'type' | 'name' | 'displayName' | 'route'>;
+type RouteActivity = Pick<ReleaseActivity, 'entityType' | 'entityName'>;
+
+export const resolveTaskRoute = (
+  task: RouteTask,
+  skills: RouteSkill[],
+  mcps: RouteMcp[],
+) => {
+  if (task.type === 'skill') {
+    const matchedSkill = skills.find((skill) => (
+      task.entityName === skill.name
+      || task.entityName === skill.displayName
+      || task.title.includes(skill.displayName)
+    ));
+    return matchedSkill ? `/admin/skills/${matchedSkill.name}` : '/admin/assets';
+  }
+  const matchedMcp = mcps.find((mcp) => (
+    task.entityName === mcp.name
+    || task.entityName === mcp.displayName
+    || task.title.includes(mcp.displayName)
+  ));
+  return matchedMcp ? `/admin/mcps/${matchedMcp.name}` : '/admin/assets';
+};
+
+export const resolveActivityRoute = (
+  activity: RouteActivity,
+  assets: RouteAsset[],
+) => {
+  const matchedAsset = assets.find((asset) => (
+    asset.type === activity.entityType
+    && (activity.entityName === asset.name || activity.entityName === asset.displayName)
+  ));
+  return matchedAsset?.route || '/admin/assets';
+};
+
 export const operationsCenter = {
   title: '运行与权限',
 };

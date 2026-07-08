@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
 
 export function useWorkspaceRoute() {
-  const [path, setPath] = useState(() => window.location.pathname === '/' ? '/chat' : window.location.pathname);
+  const readPath = () => {
+    if (window.location.pathname === '/') return '/chat';
+    return `${window.location.pathname}${window.location.search}`;
+  };
+  const [path, setPath] = useState(readPath);
 
   useEffect(() => {
-    const onPopState = () => setPath(window.location.pathname === '/' ? '/chat' : window.location.pathname);
+    const onPopState = () => setPath(readPath());
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);

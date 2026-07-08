@@ -1,13 +1,13 @@
-import { countTasksByLifecycleStage, LifecycleStage, McpDefinition, OperationsTask, PlatformMetrics, ReleaseActivity, SkillDefinition, stageLabel, taskLifecycleStage } from '../managementData';
+import { countTasksByLifecycleStage, LifecycleStage, McpDefinition, OperationsTask, ReleaseActivity, resolveActivityRoute, resolveTaskRoute, SkillDefinition, stageLabel, taskLifecycleStage, UnifiedAssetRecord } from '../managementData';
 import { MetricStrip, PageHeader } from '../components/ManagementUi';
 import { TaskDetailDrawer } from '../components/TaskDetailDrawer';
 import { useMemo, useState } from 'react';
 
 type Props = {
   tasks: OperationsTask[];
+  assets: UnifiedAssetRecord[];
   skills: SkillDefinition[];
   mcps: McpDefinition[];
-  platformMetrics: PlatformMetrics;
   releaseActivities: ReleaseActivity[];
   onNavigate: (path: string) => void;
 };
@@ -20,13 +20,23 @@ const releaseActionLabel: Record<ReleaseActivity['action'], string> = {
   dependency_unblocked: '依赖已解锁',
 };
 
-export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, releaseActivities, onNavigate }: Props) {
+export function AdminWorkbenchPage({ tasks, assets, skills, mcps, releaseActivities, onNavigate }: Props) {
   const [scope, setScope] = useState('全部任务');
   const [selectedTaskId, setSelectedTaskId] = useState(tasks[0]?.id || '');
   const isLifecycleTask = (task: OperationsTask, stage: LifecycleStage) => taskLifecycleStage(task) === stage;
+  const findAssetByTask = (task: OperationsTask) => assets.find((asset) => (
+    asset.type === task.type
+    && (task.entityName === asset.name || task.entityName === asset.displayName || task.title.includes(asset.displayName))
+  ));
   const blockedTasks = tasks.filter((task) => isLifecycleTask(task, 'blocked'));
   const publishTasks = tasks.filter((task) => isLifecycleTask(task, 'publish'));
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
+  const reviewReturnAssets = assets.filter((asset) => asset.lifecycleStage === 'review_rejected' || (asset.failureSummary || '').length > 0).slice(0, 4);
+  const recentObjects = releaseActivities.map((activity) => assets.find((asset) => (
+    asset.type === activity.entityType
+    && (activity.entityName === asset.name || activity.entityName === asset.displayName)
+  ))).filter((asset, index, list): asset is UnifiedAssetRecord => Boolean(asset) && list.findIndex((item) => item?.id === asset?.id) === index).slice(0, 4);
+  const dependencyRecoveryActivities = releaseActivities.filter((activity) => activity.action === 'dependency_unblocked').slice(0, 3);
   const visibleTasks = useMemo(() => {
     if (scope === '待审核') return tasks.filter((task) => isLifecycleTask(task, 'review'));
     if (scope === '待发布') return tasks.filter((task) => isLifecycleTask(task, 'publish'));
@@ -43,22 +53,9 @@ export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, relea
     || item.entityName === selectedTask.title
     || selectedTask.title.includes(item.entityName)
   )).slice(0, 5) : [];
-  const resolveTaskRoute = (task: OperationsTask) => {
-    if (task.type === 'skill') {
-      const matchedSkill = skills.find((skill) => (
-        task.entityName === skill.name
-        || task.entityName === skill.displayName
-        || task.title.includes(skill.displayName)
-      ));
-      return matchedSkill ? `/admin/skills/${matchedSkill.name}` : '/admin/assets';
-    }
-    const matchedMcp = mcps.find((mcp) => (
-      task.entityName === mcp.name
-      || task.entityName === mcp.displayName
-      || task.title.includes(mcp.displayName)
-    ));
-    return matchedMcp ? `/admin/mcps/${matchedMcp.name}` : '/admin/assets';
-  };
+  const assetStageLabel = (task: OperationsTask) => findAssetByTask(task)?.lifecycleStage ? stageLabel[findAssetByTask(task)!.lifecycleStage] : stageLabel[taskLifecycleStage(task)];
+  const taskRoute = (task: OperationsTask) => resolveTaskRoute(task, skills, mcps);
+  const timelineActivityRoute = (activity: ReleaseActivity) => resolveActivityRoute(activity, assets);
 
   return <section className="management-page admin-workbench-page">
     <PageHeader
@@ -68,10 +65,10 @@ export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, relea
       actions={<><button className="secondary-action" type="button" onClick={() => onNavigate('/admin/pipeline')}>查看发布流水线</button><button className="primary-action" type="button" onClick={() => onNavigate('/admin/assets')}>进入统一目录</button></>}
     />
     <MetricStrip items={[
-      { label: '待处理治理事项', value: countTasksByLifecycleStage(tasks, 'review') + countTasksByLifecycleStage(tasks, 'publish') },
-      { label: '集团已发布 Skill', value: skills.filter((item) => item.releaseStatus === 'published').length, tone: 'success' },
-      { label: '测试中能力', value: countTasksByLifecycleStage(tasks, 'testing') },
-      { label: '依赖阻塞', value: countTasksByLifecycleStage(tasks, 'blocked'), tone: 'danger' },
+      { label: '待处理治理事项', value: assets.filter((item) => ['review', 'publish', 'review_rejected'].includes(item.lifecycleStage)).length },
+      { label: '按资产阶段继续处理', value: assets.filter((item) => ['testing', 'review', 'publish', 'blocked', 'review_rejected'].includes(item.lifecycleStage)).length, tone: 'success' },
+      { label: '测试中能力', value: assets.filter((item) => item.lifecycleStage === 'testing').length },
+      { label: '依赖阻塞', value: assets.filter((item) => item.lifecycleStage === 'blocked').length, tone: 'danger' },
     ]} />
 
     <section className="workbench-hero">
@@ -107,7 +104,7 @@ export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, relea
           {visibleTasks.map((task) => <article key={task.id} className={`task-card stage-${task.stage} task-card-clickable ${selectedTask?.id === task.id ? 'task-card-selected' : ''}`} onClick={() => setSelectedTaskId(task.id)}>
             <div className="task-card-top">
               <div><span>{task.type === 'skill' ? 'Skill 任务' : 'MCP 子任务'} · {task.priority}</span><strong>{task.title}</strong></div>
-              <i>{stageLabel[taskLifecycleStage(task)]}</i>
+              <i>{assetStageLabel(task)}</i>
             </div>
             <p>{task.summary}</p>
             <div className="task-card-meta">
@@ -125,7 +122,7 @@ export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, relea
               }}>统一目录</button>
               <button type="button" className="primary-action" onClick={(event) => {
                 event.stopPropagation();
-                onNavigate(resolveTaskRoute(task));
+                onNavigate(taskRoute(task));
               }}>继续处理</button>
             </div>
           </article>)}
@@ -133,9 +130,20 @@ export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, relea
       </article>
 
       <article className="panel-card">
+        <h3>最近我操作过的对象</h3>
+        <div className="workbench-recent-grid">
+          {recentObjects.map((asset) => <button key={asset.id} type="button" onClick={() => onNavigate(asset.route)}>
+            <span>{asset.type.toUpperCase()} · {stageLabel[asset.lifecycleStage]}</span>
+            <strong>{asset.displayName}</strong>
+            <small>{asset.updatedAt}</small>
+          </button>)}
+        </div>
+      </article>
+
+      <article className="panel-card">
         <h3>关键阻塞</h3>
         <div className="dependency-list">
-          {blockedTasks.map((task) => <button type="button" key={task.id} onClick={() => onNavigate(resolveTaskRoute(task))}>
+          {blockedTasks.map((task) => <button type="button" key={task.id} onClick={() => onNavigate(taskRoute(task))}>
             {task.title}
             <b>继续处理 →</b>
           </button>)}
@@ -143,12 +151,12 @@ export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, relea
       </article>
 
       <article className="panel-card">
-        <h3>能力供给概览</h3>
-        <div className="stat-stack">
-          <strong>{skills.filter((item) => item.releaseStatus === 'published').length}</strong>
-          <span>已发布 Skill</span>
-          <strong>{mcps.filter((item) => item.releaseStatus === 'published').length}</strong>
-          <span>已发布 MCP</span>
+        <h3>审核退回待补充</h3>
+        <div className="review-return-list">
+          {reviewReturnAssets.map((asset) => <button key={asset.id} type="button" onClick={() => onNavigate(asset.route)}>
+            <strong>{asset.displayName}</strong>
+            <span>{asset.failureSummary || '待补充审核资料'}</span>
+          </button>)}
         </div>
       </article>
 
@@ -156,22 +164,20 @@ export function AdminWorkbenchPage({ tasks, skills, mcps, platformMetrics, relea
         <h3>最近状态时间线</h3>
         <div className="mini-timeline task-timeline">
           {releaseActivities.slice(0, 5).map((item) => {
-            const matchedTask = findTaskByActivity(item);
-            return <button className="timeline-activity-button" key={item.id} type="button" onClick={() => matchedTask && setSelectedTaskId(matchedTask.id)}>{item.entityName} · {releaseActionLabel[item.action]}<small>{item.operator} · {item.createdAt}</small></button>;
+            return <button className="timeline-activity-button" key={item.id} type="button" onClick={() => onNavigate(timelineActivityRoute(item))}>{item.entityName} · {releaseActionLabel[item.action]}<small>{item.operator} · {item.createdAt}</small></button>;
           })}
         </div>
       </article>
 
-      <article className="panel-card span-2">
-        <h3>平台活跃与覆盖</h3>
-        <div className="definition-grid">
-          <div><span>月活用户</span><strong>{platformMetrics.monthlyActiveUsers.toLocaleString()}</strong></div>
-          <div><span>调用成功率</span><strong>{platformMetrics.apiSuccessRate}</strong></div>
-          <div><span>覆盖组织</span><strong>{platformMetrics.coverageOrganizations} 家</strong></div>
-          <div><span>热门能力</span><strong>{platformMetrics.topSkills.join(' / ')}</strong></div>
+      <article className="panel-card">
+        <h3>依赖解锁后恢复测试</h3>
+        <div className="dependency-list">
+          {dependencyRecoveryActivities.length === 0 ? <span>当前没有刚解锁的依赖对象。</span> : dependencyRecoveryActivities.map((item) => <button type="button" key={item.id} onClick={() => onNavigate(timelineActivityRoute(item))}>
+            {item.entityName}
+            <b>恢复测试 →</b>
+          </button>)}
         </div>
       </article>
-
       {selectedTask ? <TaskDetailDrawer task={selectedTask} activities={selectedTaskActivities} onClose={() => setSelectedTaskId('')} /> : null}
     </div>
   </section>;

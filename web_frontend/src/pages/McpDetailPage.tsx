@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { lifecycleActionByStage, lifecycleStageForReleaseStatus, LifecycleStage, McpDefinition, ReleaseActivity, releaseStatusLabel, SkillDefinition, skillDependenciesForMcp, stageLabel } from '../managementData';
-import { DetailTabs, LifecycleOverviewPanel, PageHeader, PrototypeToast, StatusBadge } from '../components/ManagementUi';
+import { DetailSummaryPanel, DetailTabs, DetailTestPanel, LifecycleOverviewPanel, PageHeader, PrototypeToast, RecentActivityPanel, StageActionPanel, StatusBadge } from '../components/ManagementUi';
 
 type Props = { mcp: McpDefinition; skills: SkillDefinition[]; recentActivities: ReleaseActivity[]; onNavigate: (path: string) => void; onUpdate: (mcp: McpDefinition) => void; onHealthCheck: (mcp: McpDefinition) => void; onPublish: (mcp: McpDefinition) => void };
 
@@ -27,6 +27,16 @@ export function McpDetailPage({ mcp, skills, recentActivities, onNavigate, onUpd
     { label: '发布检查清单', value: '版本差异 / 回滚预案', description: '通过后在当前页执行发布确认，不再跳到平级发布页。' },
     { label: '运行记录', value: `${recentActivities.length} 条最近动作`, description: '回看健康检查、依赖解锁和发布动作。' },
   ];
+  const schemaDiffItems = [
+    { label: '新增字段', value: 'trace_id', description: '为调用链追踪增加只读返回字段，便于排障定位。' },
+    { label: '兼容字段', value: 'query', description: '保留原查询参数，旧版 Skill 无需调整即可继续调用。' },
+    { label: '风险提示', value: mcp.blockedBy ? '需确认依赖白名单' : '低风险变更', description: '若涉及依赖阻塞，提审时需同步说明影响范围。' },
+  ];
+  const unblockGuidanceItems = mcp.blockedBy ? [
+    { label: '当前阻塞', value: mcp.blockedBy, description: '先确认依赖发布节奏、白名单和受影响 Skill。' },
+    { label: '建议动作', value: '转到运行与权限补齐白名单与审计策略', description: '优先检查高风险动作授权和配置留痕，再恢复健康检查。' },
+    { label: '恢复条件', value: '依赖能力解锁后重新运行健康检查', description: '阻塞解除后回到当前页验证 Schema、连通性和发布清单。' },
+  ] : [];
   const publish = () => {
     onPublish(mcp);
     onUpdate({ ...mcp, releaseStatus: 'published', publishedVersion: mcp.latestVersion, blockedBy: undefined });
@@ -36,7 +46,7 @@ export function McpDetailPage({ mcp, skills, recentActivities, onNavigate, onUpd
   return <section className="management-page detail-page">
     <button className="back-link" type="button" onClick={() => onNavigate('/admin/assets')}>← 返回统一目录</button>
     <PageHeader eyebrow={mcp.category} title={mcp.displayName} description="单详情页推进测试、提审与发布，同时保留依赖影响、运行记录和发布前治理配置。" actions={<><StatusBadge status={mcp.status} /><button className="secondary-action" type="button" onClick={runHealth}>↻ 健康检查</button><button className="primary-action" type="button" onClick={toggle}>{mcp.status === 'enabled' ? '停用 MCP' : '启用 MCP'}</button></>} />
-    {/* 阶段状态 / 当前阶段主操作 / 影响组织与风险提示由 LifecycleOverviewPanel 统一渲染 */}
+    {/* 阶段状态 / 当前阶段主操作 / 影响组织与风险提示由 LifecycleOverviewPanel 统一渲染；FocusAreaPanel 由该组件内部复用。 */}
     <LifecycleOverviewPanel
       summaryTitle="影响组织与风险提示"
       summaryDescription="这里只读展示影响面、依赖和风险；真正的授权与审计配置进入发布前治理配置处理。"
@@ -46,6 +56,19 @@ export function McpDetailPage({ mcp, skills, recentActivities, onNavigate, onUpd
       stageSteps={stageSteps}
       focusAreas={focusAreas}
     />
+    <StageActionPanel
+      title="当前阶段操作"
+      description="统一主操作密度：先在详情页完成健康检查或发布确认，再按需跳到治理配置辅助区。"
+      primaryLabel="运行健康检查"
+      onPrimary={runHealth}
+      secondaryLabel="发布前治理配置"
+      onSecondary={() => onNavigate(`/admin/operations-center?asset=mcp:${mcp.name}`)}
+    />
+    {currentStage === 'blocked' && mcp.blockedBy ? <DetailSummaryPanel
+      title="解除阻塞引导"
+      description="当前 MCP 仍处于依赖阻塞，先处理白名单、审计和受影响对象，再恢复测试与发布。"
+      items={unblockGuidanceItems}
+    /> : null}
     <DetailTabs tabs={['概览', '连接与配置', 'Schema', '测试与日志']} active={tab} onChange={setTab} />
     {tab === '概览' && <div className="detail-grid">
       <article className="panel-card span-2">
@@ -105,16 +128,11 @@ export function McpDetailPage({ mcp, skills, recentActivities, onNavigate, onUpd
         </div>
         <button className="primary-action" type="button" onClick={publish}>手动发布</button>
       </article>
-      <article className="panel-card">
-        <h3>最近治理记录</h3>
-        <div className="release-diff-list">
-          {recentActivities.length ? recentActivities.map((item) => <span key={item.id}>{item.detail}</span>) : <span>暂无治理动作</span>}
-        </div>
-      </article>
+      <RecentActivityPanel title="最近治理记录" description="回看健康检查、发布或依赖变化，方便判断当前状态。" items={recentActivities.map((item) => ({ id: item.id, detail: item.detail }))} emptyText="暂无治理动作" />
     </div>}
     {tab === '连接与配置' && <div className="detail-grid"><article className="panel-card span-2"><div className="section-toolbar"><div><h3>连接与配置</h3><p>敏感配置已加密保存，页面不会回显真实值。</p></div><button className="primary-action" type="button" onClick={() => notify('配置已保存到原型状态')}>保存配置</button></div><div className="config-form">{mcp.config.map((item) => <label key={item.label}><span>{item.label}</span><input defaultValue={item.sensitive ? '••••••••••••••••' : item.value} type={item.sensitive ? 'password' : 'text'} /><small>{item.sensitive ? '敏感字段仅支持覆盖更新' : '当前运行配置'}</small></label>)}</div></article></div>}
-    {tab === 'Schema' && <div className="detail-grid"><article className="panel-card"><h3>输入字段</h3>{Object.entries(mcp.schema).map(([name, type]) => <div className="schema-field" key={name}><strong>{name}</strong><span>{type}</span></div>)}</article><article className="panel-card code-card"><h3>标准返回契约</h3><pre>{JSON.stringify({ success: true, data: {}, error: null, error_type: null }, null, 2)}</pre></article></div>}
-    {tab === '测试与日志' && <div className="test-console"><div className="test-input"><h3>MCP 测试</h3><p>根据输入 Schema 生成测试参数并执行健康检查。</p><textarea defaultValue={JSON.stringify(Object.fromEntries(Object.keys(mcp.schema).map((key) => [key, key === 'query' ? '测试查询' : ''])), null, 2)} /><button className="primary-action" type="button" onClick={runHealth}>运行测试</button></div><div className="test-output"><h3>测试与日志</h3>{testResult ? <><span className="result-success">✓ 健康检查通过</span><p>{testResult}</p><pre>{JSON.stringify({ success: true, data: '测试返回正常', duration: mcp.latency, audit: '审计日志已记录' }, null, 2)}</pre></> : <div className="empty-console">等待运行测试，审计日志将在执行后生成</div>}</div></div>}
+    {tab === 'Schema' && <div className="detail-grid"><article className="panel-card"><h3>输入字段</h3>{Object.entries(mcp.schema).map(([name, type]) => <div className="schema-field" key={name}><strong>{name}</strong><span>{type}</span></div>)}</article><article className="panel-card code-card"><h3>标准返回契约</h3><pre>{JSON.stringify({ success: true, data: {}, error: null, error_type: null }, null, 2)}</pre></article><div className="span-2"><DetailSummaryPanel title="Schema 变更差异" description="提审前先确认本次输入输出契约的新增项、兼容项和风险提示。" items={schemaDiffItems} /></div></div>}
+    {tab === '测试与日志' && <DetailTestPanel title="MCP 测试" description="根据输入 Schema 生成测试参数并执行健康检查。" actionLabel="运行测试" onAction={runHealth}><div className="test-console"><div className="test-input"><textarea defaultValue={JSON.stringify(Object.fromEntries(Object.keys(mcp.schema).map((key) => [key, key === 'query' ? '测试查询' : ''])), null, 2)} /></div><div className="test-output"><h3>测试与日志</h3>{testResult ? <><span className="result-success">✓ 健康检查通过</span><p>{testResult}</p><pre>{JSON.stringify({ success: true, data: '测试返回正常', duration: mcp.latency, audit: '审计日志已记录' }, null, 2)}</pre></> : <div className="empty-console">等待运行测试，审计日志将在执行后生成</div>}</div></div></DetailTestPanel>}
     <PrototypeToast text={toast} />
   </section>;
 }

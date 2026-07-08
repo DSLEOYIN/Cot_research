@@ -1,5 +1,5 @@
 import { AccountPermissionProfile, AdminRoleProfile, PermissionAuditLog } from '../api/client';
-import { ActionGovernanceCase, OperationsTask, OrganizationAccessProfile, releaseStatusLabel, SkillDefinition } from '../managementData';
+import { ActionGovernanceCase, OperationsTask, OrganizationAccessProfile, releaseStatusLabel, SkillDefinition, UnifiedAssetRecord } from '../managementData';
 import { MetricStrip, PageHeader } from '../components/ManagementUi';
 import { useMemo, useState } from 'react';
 
@@ -11,6 +11,7 @@ type Props = {
   organizationProfiles: OrganizationAccessProfile[];
   actionGovernanceCases: ActionGovernanceCase[];
   permissionAuditLogs: PermissionAuditLog[];
+  contextAsset?: UnifiedAssetRecord | null;
   onNavigate: (path: string) => void;
   onCreateAccount: (payload: Partial<AccountPermissionProfile> & { password?: string }) => Promise<AccountPermissionProfile>;
   onSaveAccountPermissions: (account: AccountPermissionProfile, allowedSkills: string[], deniedSkills: string[]) => void;
@@ -26,7 +27,7 @@ const approvalModeOptions = ['部门管理员复核', '动作型能力二次确�
 const defaultDataDomainOptions = ['销售', '库存', '人力', 'OA', '平台配置', '监控', '审计', '知识库'];
 const defaultActionPermissionOptions = ['查询', '下载', '提交', '审批', '发布', '回滚', '授权', '测试'];
 
-export function AdminReviewPage({ tasks, accounts, skills, roles, organizationProfiles, actionGovernanceCases, permissionAuditLogs, onNavigate, onCreateAccount, onSaveAccountPermissions, onSaveProfile, onBulkGrantSkills, onBulkDenySkills, onExportPermissionReport, onSaveRoleTemplate, onApproveTask }: Props) {
+export function AdminReviewPage({ tasks, accounts, skills, roles, organizationProfiles, actionGovernanceCases, permissionAuditLogs, contextAsset, onNavigate, onCreateAccount, onSaveAccountPermissions, onSaveProfile, onBulkGrantSkills, onBulkDenySkills, onExportPermissionReport, onSaveRoleTemplate, onApproveTask }: Props) {
   const [priority, setPriority] = useState('全部优先级');
   const [viewMode, setViewMode] = useState<'account' | 'role' | 'organization' | 'audit'>('account');
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
@@ -94,6 +95,24 @@ export function AdminReviewPage({ tasks, accounts, skills, roles, organizationPr
   const selectedAccount = filteredAccounts.find((account) => account.id === selectedAccountId) || filteredAccounts[0] || accounts.find((account) => account.id === selectedAccountId) || accounts[0];
   const accountOverride = selectedAccount ? nextAccountOverrides[selectedAccount.id] || { allowedSkills: selectedAccount.allowedSkills, deniedSkills: selectedAccount.deniedSkills } : { allowedSkills: [], deniedSkills: [] };
   const selectedOrganization = selectedAccount ? organizationProfiles.find((profile) => profile.id === selectedAccount.organizationId || profile.organizationName === selectedAccount.organizationName) : undefined;
+  const contextTask = contextAsset ? tasks.find((task) => task.type === contextAsset.type && task.entityName === contextAsset.name) : undefined;
+  const contextRoleTemplate = contextAsset?.type === 'skill' && contextAsset.riskLabel === '高'
+    ? '平台管理员 / 部门管理员复核'
+    : contextAsset?.type === 'mcp'
+      ? '平台运维 / 安全审计'
+      : '业务角色模板复核';
+  const contextOrganizationHint = contextAsset?.organizationSummary || '待在治理配置中明确开通组织范围';
+  const contextRecommendedAction = contextAsset?.type === 'mcp'
+    ? '优先检查白名单、角色动作权限和审计留痕，再执行发布前治理配置。'
+    : contextAsset?.riskLabel === '高'
+      ? '优先核对组织授权、审批模式和账号覆盖，再提交高风险能力复核。'
+      : '优先确认组织范围、默认角色模板和账号级覆盖是否与业务场景一致。';
+  const contextRecommendedView: 'account' | 'role' | 'organization' | 'audit' = contextAsset?.type === 'mcp'
+    ? 'audit'
+    : contextAsset?.riskLabel === '高'
+      ? 'organization'
+      : 'role';
+  const openContextView = () => setViewMode(contextRecommendedView);
 
   const submitNewAccount = async () => {
     const created = await onCreateAccount({
@@ -162,13 +181,33 @@ export function AdminReviewPage({ tasks, accounts, skills, roles, organizationPr
       <div><span>待处理</span><strong>{reviewTasks.length} 个授权事项</strong></div>
     </section>
 
+    {contextAsset ? <section className="panel-card operations-context-panel">
+      <div className="section-toolbar">
+        <div>
+          <span>CONTEXT</span>
+          <h3>从对象详情进入的治理配置</h3>
+          <p>当前对象、风险等级和推荐治理动作已带入，避免在运行与权限页里重新定位。</p>
+        </div>
+        <div className="review-buttons">
+          <button className="secondary-action" type="button" onClick={() => onNavigate(contextAsset.route)}>返回对象详情</button>
+          <button className="primary-action" type="button" onClick={openContextView}>查看推荐配置视图</button>
+        </div>
+      </div>
+      <div className="generated-summary-grid">
+        <div><span>当前对象</span><strong>{contextAsset.displayName}</strong><p>{contextAsset.type === 'skill' ? 'Skill 能力对象' : 'MCP 工具对象'} · {contextAsset.category}</p></div>
+        <div><span>风险等级</span><strong>{contextAsset.riskLabel}</strong><p>{contextTask?.blockedBy || contextTask?.failureReason || contextAsset.failureSummary || '当前无额外阻塞，可直接进入治理配置。'}</p></div>
+        <div><span>推荐配置动作</span><strong>{contextRecommendedAction}</strong><p>{contextOrganizationHint}</p></div>
+        <div><span>推荐角色 / 视图</span><strong>{contextRoleTemplate}</strong><p>{contextRecommendedView === 'audit' ? '建议先看策略审计与高风险动作留痕。' : contextRecommendedView === 'organization' ? '建议先看组织树中的默认能力和审批模式。' : '建议先看角色模板中的默认能力与动作权限。'}</p></div>
+      </div>
+    </section> : null}
+
     <section className="permission-console">
       <div className="directory-toolbar">
-        <div className="directory-tabs" aria-label="权限对象类型">
-          <button className={viewMode === 'account' ? 'active' : ''} type="button" onClick={() => setViewMode('account')}>账号目录</button>
+        <div className="directory-tabs" aria-label="运行与权限四视图">
+          <button className={viewMode === 'account' ? 'active' : ''} type="button" onClick={() => setViewMode('account')}>账号覆盖</button>
           <button className={viewMode === 'role' ? 'active' : ''} type="button" onClick={() => setViewMode('role')}>角色模板</button>
           <button className={viewMode === 'organization' ? 'active' : ''} type="button" onClick={() => setViewMode('organization')}>组织树</button>
-          <button className={viewMode === 'audit' ? 'active' : ''} type="button" onClick={() => setViewMode('audit')}>策略审计</button>
+          <button className={viewMode === 'audit' ? 'active' : ''} type="button" onClick={() => setViewMode('audit')}>审计中心</button>
         </div>
         <label className="directory-search"><span>搜索账号</span><input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="姓名 / username / 组织 / 角色" /></label>
         <label><span>组织筛选</span><select value={organizationFilter} onChange={(event) => setOrganizationFilter(event.target.value)}><option>全部组织</option>{organizationOptions.map((organization) => <option key={organization}>{organization}</option>)}</select></label>
@@ -192,10 +231,10 @@ export function AdminReviewPage({ tasks, accounts, skills, roles, organizationPr
           </button>
         </div>
         <button type="button" onClick={() => onExportPermissionReport(exportTargets)}>导出权限清单</button>
-        <small>账号目录表格 · 当前显示 {filteredAccounts.length} 条 · 每页 50 条</small>
+        <small>账号覆盖表格 · 当前显示 {filteredAccounts.length} 条 · 每页 50 条</small>
       </div>
 
-      {viewMode === 'audit' ? <div className="permission-audit-console">
+      {viewMode === 'audit' ? <div className="permission-audit-console" aria-label="审计中心视图">
         <div className="permission-audit-toolbar">
           <div>
             <strong>权限审计中心</strong>
@@ -272,9 +311,9 @@ export function AdminReviewPage({ tasks, accounts, skills, roles, organizationPr
           </div>
         </article>;
         })}
-      </div> : <div className="permission-directory-layout">
+      </div> : <div className="permission-directory-layout" aria-label={viewMode === 'role' ? '角色模板视图' : '账号覆盖视图'}>
         <article className="account-directory-panel">
-          <div className="account-directory-table" role="table" aria-label="账号目录表格">
+          <div className="account-directory-table" role="table" aria-label="账号覆盖表格">
             <div className="account-directory-row table-head" role="row">
               <span>选择</span>
               <span>账号</span>

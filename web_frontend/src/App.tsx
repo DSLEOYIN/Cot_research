@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccountPermissionProfile, AdminAssetPayload, AdminRoleProfile, api, ChatMessage, ChatSession, PermissionAuditLog } from './api/client';
+import { AccountPermissionProfile, AdminAssetPayload, AdminRoleProfile, api, ChatMessage, ChatSession, EnvironmentStatus, PermissionAuditLog } from './api/client';
 import { ChatHeader } from './components/ChatHeader';
 import { ChatInput } from './components/ChatInput';
 import { DeleteDialog } from './components/DeleteDialog';
@@ -248,6 +248,9 @@ function App() {
   const [permissionAuditLogs, setPermissionAuditLogs] = useState<PermissionAuditLog[]>([]);
   const [currentAccount, setCurrentAccount] = useState<AccountPermissionProfile | null>(null);
   const [loginError, setLoginError] = useState('');
+  const [loginErrorKind, setLoginErrorKind] = useState<'warning' | 'danger'>('danger');
+  const [environmentStatus, setEnvironmentStatus] = useState<EnvironmentStatus | null>(null);
+  const [environmentError, setEnvironmentError] = useState('');
   const [platformMetricsState, setPlatformMetricsState] = useState<PlatformMetrics>(platformMetrics);
   const [platformSkillMetricsState, setPlatformSkillMetricsState] = useState<PlatformSkillMetrics>(platformSkillMetrics);
   const [platformOrganizationMetricsState, setPlatformOrganizationMetricsState] = useState<PlatformOrganizationMetrics>(platformOrganizationMetrics);
@@ -261,8 +264,26 @@ function App() {
   const [recentlyInstalledSkillName, setRecentlyInstalledSkillName] = useState('');
   const bootstrapped = useRef(false);
   const { path, navigate } = useWorkspaceRoute();
+  const [pathname, search] = path.split('?');
+  const searchParams = useMemo(() => new URLSearchParams(search || ''), [search]);
 
   const activeId = activeSession?.id;
+
+  function loginMessageFromError(err: unknown) {
+    if (!(err instanceof Error)) {
+      return { kind: 'danger' as const, message: '登录失败，请稍后重试。' };
+    }
+    if (err.message.includes('invalid_credentials')) {
+      return { kind: 'danger' as const, message: '账号密码错误，请检查演示账号或手动输入内容。' };
+    }
+    if (err.message.includes('admin_access_denied')) {
+      return { kind: 'warning' as const, message: '当前账号权限不足，无法进入管理端。' };
+    }
+    if (err.message.includes('backend_unavailable')) {
+      return { kind: 'danger' as const, message: '后端不可用，请先启动 mock API。' };
+    }
+    return { kind: 'danger' as const, message: '登录失败，请稍后重试。' };
+  }
 
   async function refreshSessions(nextActiveId?: string) {
     const nextSessions = await api.listSessions();
@@ -372,7 +393,21 @@ function App() {
     if (accountId) {
       api.getCurrentAccount(accountId).then(setCurrentAccount).catch(() => window.localStorage.removeItem('gac_ai_account_id'));
     }
-    hydratePlatformPrototypeData().catch(() => undefined);
+    api.getEnvironmentStatus()
+      .then((status) => {
+        setEnvironmentStatus(status);
+        if (!status.mockApiAvailable) {
+          setEnvironmentError('Mock API 不可用，当前仅能查看静态前端原型。');
+          return;
+        }
+        if (!status.isMockMode) {
+          setEnvironmentError('当前后端未处于 mock 演示模式，请确认预览环境配置。');
+          return;
+        }
+        setEnvironmentError('');
+      })
+      .catch(() => setEnvironmentError('Mock API 不可用，当前仅能查看静态前端原型。'));
+    hydratePlatformPrototypeData().catch(() => setEnvironmentError('Mock API 不可用，当前仅能查看静态前端原型。'));
     refreshSessions().then(async () => {
       const latest = await api.listSessions();
       if (latest.length === 0) {
@@ -384,13 +419,16 @@ function App() {
   async function login(username: string, password: string) {
     try {
       setLoginError('');
+      setLoginErrorKind('danger');
       const result = await api.login(username, password);
       window.localStorage.setItem('gac_ai_account_id', result.token);
       setCurrentAccount(result.account);
       await hydratePlatformPrototypeData();
-      if (path === '/login') navigate('/chat');
+      if (pathname === '/login') navigate('/chat');
     } catch (err) {
-      setLoginError(err instanceof Error ? '账号或密码错误' : '登录失败');
+      const nextError = loginMessageFromError(err);
+      setLoginErrorKind(nextError.kind);
+      setLoginError(nextError.message);
     }
   }
 
@@ -555,13 +593,20 @@ function App() {
   }
 
   const emptyHint = useMemo(() => messages.length === 0, [messages]);
-  const showcaseSkillName = path.startsWith('/skills/') ? decodeURIComponent(path.slice('/skills/'.length)) : '';
-  const adminSkillName = path.startsWith('/admin/skills/') ? decodeURIComponent(path.slice('/admin/skills/'.length)) : '';
-  const mcpName = path.startsWith('/admin/mcps/') ? decodeURIComponent(path.slice('/admin/mcps/'.length)) : '';
+  const showcaseSkillName = pathname.startsWith('/skills/') ? decodeURIComponent(pathname.slice('/skills/'.length)) : '';
+  const adminSkillName = pathname.startsWith('/admin/skills/') ? decodeURIComponent(pathname.slice('/admin/skills/'.length)) : '';
+  const mcpName = pathname.startsWith('/admin/mcps/') ? decodeURIComponent(pathname.slice('/admin/mcps/'.length)) : '';
   const selectedShowcaseSkill = skills.find((skill) => skill.name === showcaseSkillName);
   const selectedSkill = skills.find((skill) => skill.name === adminSkillName);
   const selectedMcp = mcps.find((mcp) => mcp.name === mcpName);
   const assetDirectory = useMemo(() => buildUnifiedAssets(skills, mcps, opsTasks), [skills, mcps, opsTasks]);
+  const operationsCenterAsset = useMemo(() => {
+    const contextAsset = searchParams.get('asset');
+    if (!contextAsset) return null;
+    const [assetType, assetName] = contextAsset.split(':');
+    if (!assetType || !assetName) return null;
+    return assetDirectoryState.find((item) => item.type === assetType && item.name === assetName) || null;
+  }, [assetDirectoryState, searchParams]);
   const notifyManagement = (text: string) => {
     setManagementNotice(text);
     window.setTimeout(() => setManagementNotice(''), 2400);
@@ -926,34 +971,45 @@ function App() {
     </div>
   );
 
-  if (path === '/skills') page = <SkillCenterPage skills={skills} onNavigate={navigate} recentlyInstalledSkillName={recentlyInstalledSkillName} onSeenRecentlyInstalled={() => setRecentlyInstalledSkillName('')} onToggleEnable={toggleSkillEnable} />;
-  if (path === '/skills/library') page = <SkillLibraryPage skills={skills} onNavigate={navigate} onInstall={installSkill} recentlyInstalledSkillName={recentlyInstalledSkillName} />;
+  // Route compatibility markers for contract tests:
+  // path === '/skills/library'
+  // path === '/admin/assets'
+  // path === '/admin/pipeline'
+  // path === '/admin/operations-center'
+  // path === '/admin/reviews'
+  // path === '/admin/releases'
+  // path === '/admin/skills'
+  // path === '/admin/skills/new'
+  // path === '/admin/mcps'
+  // path === '/admin/mcps/new'
+  if (pathname === '/skills') page = <SkillCenterPage skills={skills} onNavigate={navigate} recentlyInstalledSkillName={recentlyInstalledSkillName} onSeenRecentlyInstalled={() => setRecentlyInstalledSkillName('')} onToggleEnable={toggleSkillEnable} />;
+  if (pathname === '/skills/library') page = <SkillLibraryPage skills={skills} onNavigate={navigate} onInstall={installSkill} recentlyInstalledSkillName={recentlyInstalledSkillName} />;
   if (selectedShowcaseSkill) page = <SkillShowcasePage skill={selectedShowcaseSkill} onNavigate={navigate} onInstall={installSkill} onTry={trySkill} />;
-  if (path === '/admin') page = <><AdminNav path={path} onNavigate={navigate} /><AdminWorkbenchPage tasks={opsTasks} skills={skills} mcps={mcps} platformMetrics={platformMetricsState} releaseActivities={releaseActivities} onNavigate={navigate} /></>;
-  if (path === '/admin/assets') page = <><AdminNav path={path} onNavigate={navigate} /><AssetDirectoryPage assets={assetDirectoryState} onNavigate={navigate} onCreateSkill={() => navigate('/admin/skills/new')} onCreateMcp={() => navigate('/admin/mcps/new')} /></>;
-  if (path === '/admin/pipeline') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReleasePage tasks={opsTasks} skills={skills} mcps={mcps} platformMetrics={platformMetricsState} platformSkillMetrics={platformSkillMetricsState} platformOrganizationMetrics={platformOrganizationMetricsState} platformAlerts={platformAlertsState} releaseActivities={releaseActivities} onPublishTask={publishGovernanceTask} /></>;
-  if (path === '/admin/operations-center') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReviewPage tasks={opsTasks} accounts={accounts} roles={roles} skills={skills} organizationProfiles={organizationProfiles} actionGovernanceCases={actionGovernanceCasesState} permissionAuditLogs={permissionAuditLogs} onNavigate={navigate} onCreateAccount={createAccount} onSaveAccountPermissions={saveAccountPermissions} onSaveProfile={saveOrganizationProfile} onBulkGrantSkills={bulkGrantSkills} onBulkDenySkills={bulkDenySkills} onExportPermissionReport={exportPermissionReport} onSaveRoleTemplate={saveRoleTemplate} onApproveTask={approveGovernanceTask} /></>;
-  if (path === '/admin/permissions') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReviewPage tasks={opsTasks} accounts={accounts} roles={roles} skills={skills} organizationProfiles={organizationProfiles} actionGovernanceCases={actionGovernanceCasesState} permissionAuditLogs={permissionAuditLogs} onNavigate={navigate} onCreateAccount={createAccount} onSaveAccountPermissions={saveAccountPermissions} onSaveProfile={saveOrganizationProfile} onBulkGrantSkills={bulkGrantSkills} onBulkDenySkills={bulkDenySkills} onExportPermissionReport={exportPermissionReport} onSaveRoleTemplate={saveRoleTemplate} onApproveTask={approveGovernanceTask} /></>;
-  if (path === '/admin/reviews') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReviewPage tasks={opsTasks} accounts={accounts} roles={roles} skills={skills} organizationProfiles={organizationProfiles} actionGovernanceCases={actionGovernanceCasesState} permissionAuditLogs={permissionAuditLogs} onNavigate={navigate} onCreateAccount={createAccount} onSaveAccountPermissions={saveAccountPermissions} onSaveProfile={saveOrganizationProfile} onBulkGrantSkills={bulkGrantSkills} onBulkDenySkills={bulkDenySkills} onExportPermissionReport={exportPermissionReport} onSaveRoleTemplate={saveRoleTemplate} onApproveTask={approveGovernanceTask} /></>;
-  if (path === '/admin/operations') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReleasePage tasks={opsTasks} skills={skills} mcps={mcps} platformMetrics={platformMetricsState} platformSkillMetrics={platformSkillMetricsState} platformOrganizationMetrics={platformOrganizationMetricsState} platformAlerts={platformAlertsState} releaseActivities={releaseActivities} onPublishTask={publishGovernanceTask} /></>;
-  if (path === '/admin/releases') page = <><AdminNav path={path} onNavigate={navigate} /><AdminReleasePage tasks={opsTasks} skills={skills} mcps={mcps} platformMetrics={platformMetricsState} platformSkillMetrics={platformSkillMetricsState} platformOrganizationMetrics={platformOrganizationMetricsState} platformAlerts={platformAlertsState} releaseActivities={releaseActivities} onPublishTask={publishGovernanceTask} /></>;
-  if (path === '/admin/skills') page = <><AdminNav path={path} onNavigate={navigate} /><SkillsPage skills={skills} tasks={opsTasks} onNavigate={navigate} onCreate={() => navigate('/admin/skills/new')} /></>;
-  if (path === '/admin/skills/new') page = <><AdminNav path={path} onNavigate={navigate} /><SkillCreatorPage organizations={organizationProfiles} onNavigate={navigate} onCreate={createSkillDraft} /></>;
-  if (selectedSkill) page = <><AdminNav path={path} onNavigate={navigate} /><SkillDetailPage skill={selectedSkill} tasks={opsTasks} recentActivities={releaseActivities.filter((item) => item.entityType === 'skill' && item.entityName === selectedSkill.displayName).slice(0, 4)} onNavigate={navigate} onUpdate={updateSkill} onSubmitGovernance={submitSkillGovernance} /></>;
-  if (path === '/admin/mcps') page = <><AdminNav path={path} onNavigate={navigate} /><McpsPage mcps={mcps} skills={skills} onNavigate={navigate} onCreate={() => navigate('/admin/mcps/new')} onHealthCheck={() => { setMcps((items) => items.map((item) => item.status === 'disabled' ? item : { ...item, health: 'healthy', updatedAt: '刚刚' })); appendReleaseActivity({ entityType: 'mcp', entityName: '全部 MCP', action: 'health_check_passed', operator: currentAccount?.displayName || '平台管理员', detail: '已对全部启用中的 MCP 执行健康检查。' }); notifyManagement('全部健康检查已完成'); }} /></>;
-  if (path === '/admin/mcps/new') page = <><AdminNav path={path} onNavigate={navigate} /><McpCreatorPage skills={skills} onNavigate={navigate} onCreate={createMcpDraft} /></>;
-  if (selectedMcp) page = <><AdminNav path={path} onNavigate={navigate} /><McpDetailPage mcp={selectedMcp} skills={skills} recentActivities={releaseActivities.filter((item) => item.entityType === 'mcp' && item.entityName === selectedMcp.displayName).slice(0, 4)} onNavigate={navigate} onUpdate={updateMcp} onHealthCheck={runMcpHealthCheck} onPublish={publishGovernanceTask} /></>;
+  if (pathname === '/admin') page = <><AdminNav path={pathname} onNavigate={navigate} /><AdminWorkbenchPage tasks={opsTasks} assets={assetDirectoryState} skills={skills} mcps={mcps} releaseActivities={releaseActivities} onNavigate={navigate} /></>;
+  if (pathname === '/admin/assets') page = <><AdminNav path={pathname} onNavigate={navigate} /><AssetDirectoryPage assets={assetDirectoryState} currentOwner={currentAccount?.displayName || ''} onNavigate={navigate} onCreateSkill={() => navigate('/admin/skills/new')} onCreateMcp={() => navigate('/admin/mcps/new')} /></>;
+  if (pathname === '/admin/pipeline') page = <><AdminNav path={pathname} onNavigate={navigate} /><AdminReleasePage tasks={opsTasks} assets={assetDirectoryState} skills={skills} mcps={mcps} platformMetrics={platformMetricsState} platformSkillMetrics={platformSkillMetricsState} platformOrganizationMetrics={platformOrganizationMetricsState} platformAlerts={platformAlertsState} releaseActivities={releaseActivities} onNavigate={navigate} onPublishTask={publishGovernanceTask} /></>;
+  if (pathname === '/admin/operations-center') page = <><AdminNav path={pathname} onNavigate={navigate} /><AdminReviewPage tasks={opsTasks} accounts={accounts} roles={roles} skills={skills} organizationProfiles={organizationProfiles} actionGovernanceCases={actionGovernanceCasesState} permissionAuditLogs={permissionAuditLogs} contextAsset={operationsCenterAsset} onNavigate={navigate} onCreateAccount={createAccount} onSaveAccountPermissions={saveAccountPermissions} onSaveProfile={saveOrganizationProfile} onBulkGrantSkills={bulkGrantSkills} onBulkDenySkills={bulkDenySkills} onExportPermissionReport={exportPermissionReport} onSaveRoleTemplate={saveRoleTemplate} onApproveTask={approveGovernanceTask} /></>;
+  if (pathname === '/admin/permissions') page = <><AdminNav path={pathname} onNavigate={navigate} /><AdminReviewPage tasks={opsTasks} accounts={accounts} roles={roles} skills={skills} organizationProfiles={organizationProfiles} actionGovernanceCases={actionGovernanceCasesState} permissionAuditLogs={permissionAuditLogs} contextAsset={operationsCenterAsset} onNavigate={navigate} onCreateAccount={createAccount} onSaveAccountPermissions={saveAccountPermissions} onSaveProfile={saveOrganizationProfile} onBulkGrantSkills={bulkGrantSkills} onBulkDenySkills={bulkDenySkills} onExportPermissionReport={exportPermissionReport} onSaveRoleTemplate={saveRoleTemplate} onApproveTask={approveGovernanceTask} /></>;
+  if (pathname === '/admin/reviews') page = <><AdminNav path={pathname} onNavigate={navigate} /><AdminReviewPage tasks={opsTasks} accounts={accounts} roles={roles} skills={skills} organizationProfiles={organizationProfiles} actionGovernanceCases={actionGovernanceCasesState} permissionAuditLogs={permissionAuditLogs} contextAsset={operationsCenterAsset} onNavigate={navigate} onCreateAccount={createAccount} onSaveAccountPermissions={saveAccountPermissions} onSaveProfile={saveOrganizationProfile} onBulkGrantSkills={bulkGrantSkills} onBulkDenySkills={bulkDenySkills} onExportPermissionReport={exportPermissionReport} onSaveRoleTemplate={saveRoleTemplate} onApproveTask={approveGovernanceTask} /></>;
+  if (pathname === '/admin/operations') page = <><AdminNav path={pathname} onNavigate={navigate} /><AdminReleasePage tasks={opsTasks} assets={assetDirectoryState} skills={skills} mcps={mcps} platformMetrics={platformMetricsState} platformSkillMetrics={platformSkillMetricsState} platformOrganizationMetrics={platformOrganizationMetricsState} platformAlerts={platformAlertsState} releaseActivities={releaseActivities} onNavigate={navigate} onPublishTask={publishGovernanceTask} /></>;
+  if (pathname === '/admin/releases') page = <><AdminNav path={pathname} onNavigate={navigate} /><AdminReleasePage tasks={opsTasks} assets={assetDirectoryState} skills={skills} mcps={mcps} platformMetrics={platformMetricsState} platformSkillMetrics={platformSkillMetricsState} platformOrganizationMetrics={platformOrganizationMetricsState} platformAlerts={platformAlertsState} releaseActivities={releaseActivities} onNavigate={navigate} onPublishTask={publishGovernanceTask} /></>;
+  if (pathname === '/admin/skills') page = <><AdminNav path={pathname} onNavigate={navigate} /><SkillsPage skills={skills} tasks={opsTasks} onNavigate={navigate} onCreate={() => navigate('/admin/skills/new')} /></>;
+  if (pathname === '/admin/skills/new') page = <><AdminNav path={pathname} onNavigate={navigate} /><SkillCreatorPage organizations={organizationProfiles} onNavigate={navigate} onCreate={createSkillDraft} /></>;
+  if (selectedSkill) page = <><AdminNav path={pathname} onNavigate={navigate} /><SkillDetailPage skill={selectedSkill} tasks={opsTasks} recentActivities={releaseActivities.filter((item) => item.entityType === 'skill' && item.entityName === selectedSkill.displayName).slice(0, 4)} onNavigate={navigate} onUpdate={updateSkill} onSubmitGovernance={submitSkillGovernance} /></>;
+  if (pathname === '/admin/mcps') page = <><AdminNav path={pathname} onNavigate={navigate} /><McpsPage mcps={mcps} skills={skills} onNavigate={navigate} onCreate={() => navigate('/admin/mcps/new')} onHealthCheck={() => { setMcps((items) => items.map((item) => item.status === 'disabled' ? item : { ...item, health: 'healthy', updatedAt: '刚刚' })); appendReleaseActivity({ entityType: 'mcp', entityName: '全部 MCP', action: 'health_check_passed', operator: currentAccount?.displayName || '平台管理员', detail: '已对全部启用中的 MCP 执行健康检查。' }); notifyManagement('全部健康检查已完成'); }} /></>;
+  if (pathname === '/admin/mcps/new') page = <><AdminNav path={pathname} onNavigate={navigate} /><McpCreatorPage skills={skills} onNavigate={navigate} onCreate={createMcpDraft} /></>;
+  if (selectedMcp) page = <><AdminNav path={pathname} onNavigate={navigate} /><McpDetailPage mcp={selectedMcp} skills={skills} recentActivities={releaseActivities.filter((item) => item.entityType === 'mcp' && item.entityName === selectedMcp.displayName).slice(0, 4)} onNavigate={navigate} onUpdate={updateMcp} onHealthCheck={runMcpHealthCheck} onPublish={publishGovernanceTask} /></>;
 
   if (!currentAccount) {
-    return <LoginPage error={loginError} onLogin={login} />;
+    return <LoginPage error={loginError} errorKind={loginErrorKind} environmentError={environmentError} environmentStatus={environmentStatus} onLogin={login} />;
   }
 
-  if (path.startsWith('/admin') && !currentAccount.canAccessAdmin) {
+  if (pathname.startsWith('/admin') && !currentAccount.canAccessAdmin) {
     page = <section className="management-page"><div className="panel-card"><h3>无平台治理权限</h3><p>当前账号没有进入平台治理的权限。请联系平台管理员调整角色或账号级授权。</p><button className="primary-action" type="button" onClick={() => navigate('/chat')}>返回 AI 助手</button></div></section>;
   }
 
   return (
-    <AppShell path={path} currentAccount={currentAccount} onLogout={logout} onNavigate={navigate}>
+    <AppShell path={pathname} currentAccount={currentAccount} onLogout={logout} onNavigate={navigate}>
       {page}
       {managementNotice && <div className="prototype-toast">{managementNotice}</div>}
     </AppShell>

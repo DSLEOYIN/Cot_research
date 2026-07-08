@@ -307,6 +307,22 @@ class LoginRequest(BaseModel):
     password: str
 
 
+def _environment_status_payload() -> dict[str, Any]:
+    app_mode = os.getenv("APP_MODE", "mock")
+    mock_enabled = os.getenv("MOCK_ENABLED", "true").lower() == "true"
+    return {
+        "appMode": app_mode,
+        "mockApiAvailable": mock_enabled,
+        "isMockMode": app_mode == "mock",
+        "defaultLoginRoute": "/login",
+        "demoAccounts": [
+            {"username": "platform_admin", "displayName": "平台管理员", "passwordHint": "admin123", "canAccessAdmin": True},
+            {"username": "chen_sales", "displayName": "销售员工", "passwordHint": "sales123", "canAccessAdmin": False},
+            {"username": "lin_dev", "displayName": "AI 开发者", "passwordHint": "dev123", "canAccessAdmin": True},
+        ],
+    }
+
+
 PROTOTYPE_ROLES = [
     {
         "id": "platform-admin",
@@ -654,6 +670,98 @@ def _build_unified_assets(
     return assets
 
 
+def _build_unified_task(task: dict[str, Any]) -> dict[str, Any]:
+    task_type = task["type"]
+    entity_name = task["entityName"]
+    current_stage = _lifecycle_stage_for_release_status(
+        task.get("releaseStatus") or task.get("stage") or "draft",
+        task.get("failureReason") or task.get("blockedBy"),
+    )
+    return {
+        "task_id": task["id"],
+        "task_type": task_type,
+        "asset_id": f"{task_type}:{entity_name}",
+        "asset_type": task_type,
+        "title": task["title"],
+        "entity_name": entity_name,
+        "priority": task["priority"],
+        "stage": task["stage"],
+        "release_status": task["releaseStatus"],
+        "current_stage": current_stage,
+        "owner": task["owner"],
+        "updated_at": task["updatedAt"],
+        "summary": task["summary"],
+        "blocked_by": task.get("blockedBy"),
+        "parent_task_id": task.get("parentTaskId"),
+        "auto_test_pass_rate": task["autoTestPassRate"],
+        "failure_reason": task.get("failureReason"),
+        "review_notes": task.get("reviewNotes"),
+        "action_url": f"/admin/{'skills' if task_type == 'skill' else 'mcps'}/{entity_name}",
+    }
+
+
+def _build_unified_tasks(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    stage_priority = {
+        "blocked": 0,
+        "review_rejected": 1,
+        "testing": 2,
+        "review": 3,
+        "publish": 4,
+        "draft": 5,
+        "published": 6,
+    }
+    records = [_build_unified_task(task) for task in tasks]
+    records.sort(key=lambda item: (stage_priority.get(item["current_stage"], 99), item["priority"], item["updated_at"], item["task_id"]))
+    return records
+
+
+def _asset_detail_payload(
+    asset_id: str,
+    skills: list[dict[str, Any]],
+    mcps: list[dict[str, Any]],
+    tasks: list[dict[str, Any]],
+    activities: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if ":" not in asset_id:
+        raise HTTPException(status_code=404, detail=f"Asset not found: {asset_id}")
+    asset_type, entity_name = asset_id.split(":", 1)
+    assets = _build_unified_assets(skills, mcps, tasks)
+    asset = next((item for item in assets if item["asset_id"] == asset_id), None)
+    if asset is None:
+        raise HTTPException(status_code=404, detail=f"Asset not found: {asset_id}")
+
+    if asset_type == "skill":
+        detail = next((item for item in skills if item["name"] == entity_name), None)
+    elif asset_type == "mcp":
+        detail = next((item for item in mcps if item["name"] == entity_name), None)
+    else:
+        detail = None
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Asset not found: {asset_id}")
+
+    related_tasks = _tasks_for_asset(asset_type, entity_name, asset["display_name"], tasks)
+    related_activities = [
+        activity for activity in activities
+        if activity["entityType"] == asset_type
+        and (
+            activity["entityName"] == entity_name
+            or activity["entityName"] == asset["display_name"]
+            or asset["display_name"] in activity["detail"]
+        )
+    ]
+    return {
+        "asset": asset,
+        "detail": {**detail, "asset_type": asset_type, "asset_id": asset_id},
+        "tasks": [_build_unified_task(task) for task in related_tasks],
+        "activities": related_activities,
+    }
+
+
+def _primary_task_for_asset(asset_type: str, entity_name: str, display_name: str, tasks: list[dict[str, Any]]) -> dict[str, Any] | None:
+    related_tasks = _tasks_for_asset(asset_type, entity_name, display_name, tasks)
+    return next((task for task in related_tasks if task["type"] == asset_type and task["entityName"] == entity_name), None)
+
+
 def _match_action_skill(message: str) -> str | None:
     lowered = message.lower()
     if any(keyword in message for keyword in ["请假", "年假", "事假", "调休"]) or "leave" in lowered:
@@ -790,15 +898,31 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
     @app.post("/api/auth/login")
     def login(payload: LoginRequest):
         account = permission_repo.get_account_by_username(payload.username)
-        if account and account["password"] == payload.password:
-            account_view = permission_repo.account_view(account["id"])
-            if account_view:
-                return {"token": account["id"], "account": account_view}
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+        if account is None or account["password"] != payload.password:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "invalid_credentials", "message": "账号或密码错误"},
+            )
+        account_view = permission_repo.account_view(account["id"])
+        if account_view is None:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "backend_unavailable", "message": "权限账户服务暂不可用"},
+            )
+        if not account_view["canAccessAdmin"]:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "admin_access_denied", "message": "当前账号无管理端访问权限"},
+            )
+        return {"token": account["id"], "account": account_view}
 
     @app.post("/api/auth/logout", status_code=204)
     def logout():
         return None
+
+    @app.get("/api/system/environment")
+    def get_environment_status():
+        return _environment_status_payload()
 
     @app.get("/api/auth/me")
     def get_current_account(account_id: str = "u-admin"):
@@ -915,6 +1039,10 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
     def list_governance_tasks():
         return registry_repo.list_governance_tasks()
 
+    @app.get("/api/admin/tasks")
+    def list_admin_tasks():
+        return _build_unified_tasks(registry_repo.list_governance_tasks())
+
     @app.get("/api/admin/assets")
     def list_admin_assets():
         return _build_unified_assets(
@@ -922,6 +1050,106 @@ def create_app(db_path: Optional[Union[str, Path]] = None) -> FastAPI:
             registry_repo.list_mcps(),
             registry_repo.list_governance_tasks(),
         )
+
+    @app.get("/api/admin/assets/{asset_id}")
+    def get_admin_asset_detail(asset_id: str):
+        return _asset_detail_payload(
+            asset_id,
+            registry_repo.list_skills(),
+            registry_repo.list_mcps(),
+            registry_repo.list_governance_tasks(),
+            registry_repo.list_release_activities(),
+        )
+
+    @app.post("/api/admin/assets/{asset_id}/test")
+    def test_admin_asset(asset_id: str, payload: Optional[dict[str, Any]] = None):
+        detail_payload = _asset_detail_payload(
+            asset_id,
+            registry_repo.list_skills(),
+            registry_repo.list_mcps(),
+            registry_repo.list_governance_tasks(),
+            registry_repo.list_release_activities(),
+        )
+        asset = detail_payload["asset"]
+        if asset["asset_type"] == "skill":
+            return {
+                "asset_id": asset_id,
+                "action": "test",
+                "status": "passed",
+                "result": {
+                    "skillId": asset["name"],
+                    "input": payload or {},
+                    "autoTestPassRate": "7/7",
+                },
+            }
+        mcp = registry_repo.mark_mcp_health_check(asset["name"], operator="平台管理员", health="healthy")
+        if mcp is None:
+            raise HTTPException(status_code=404, detail=f"Asset not found: {asset_id}")
+        return {
+            "asset_id": asset_id,
+            "action": "test",
+            "status": "passed",
+            "result": {"mcpId": mcp["name"], "health": mcp["health"], "message": "健康检查通过"},
+        }
+
+    @app.post("/api/admin/assets/{asset_id}/submit")
+    def submit_admin_asset(asset_id: str):
+        detail_payload = _asset_detail_payload(
+            asset_id,
+            registry_repo.list_skills(),
+            registry_repo.list_mcps(),
+            registry_repo.list_governance_tasks(),
+            registry_repo.list_release_activities(),
+        )
+        asset = detail_payload["asset"]
+        if asset["asset_type"] == "skill":
+            result = registry_repo.submit_skill_governance(asset["name"], operator="平台管理员")
+            if result is None:
+                raise HTTPException(status_code=404, detail=f"Asset not found: {asset_id}")
+            next_detail = _asset_detail_payload(
+                asset_id,
+                registry_repo.list_skills(),
+                registry_repo.list_mcps(),
+                registry_repo.list_governance_tasks(),
+                registry_repo.list_release_activities(),
+            )
+            return {"asset": next_detail["asset"], "result": result}
+        mcp = registry_repo.update_mcp(asset["name"], {"releaseStatus": "ready_for_review"})
+        if mcp is None:
+            raise HTTPException(status_code=404, detail=f"Asset not found: {asset_id}")
+        next_detail = _asset_detail_payload(
+            asset_id,
+            registry_repo.list_skills(),
+            registry_repo.list_mcps(),
+            registry_repo.list_governance_tasks(),
+            registry_repo.list_release_activities(),
+        )
+        return {"asset": next_detail["asset"], "result": {"entity": mcp, "task": (next_detail["tasks"] or [None])[0]}}
+
+    @app.post("/api/admin/assets/{asset_id}/publish")
+    def publish_admin_asset(asset_id: str):
+        detail_payload = _asset_detail_payload(
+            asset_id,
+            registry_repo.list_skills(),
+            registry_repo.list_mcps(),
+            registry_repo.list_governance_tasks(),
+            registry_repo.list_release_activities(),
+        )
+        asset = detail_payload["asset"]
+        task = _primary_task_for_asset(asset["asset_type"], asset["name"], asset["display_name"], registry_repo.list_governance_tasks())
+        if task is None:
+            raise HTTPException(status_code=404, detail=f"Governance task not found for asset: {asset_id}")
+        result = registry_repo.publish_governance_task(task["id"], operator="平台管理员")
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"Governance task not found for asset: {asset_id}")
+        next_detail = _asset_detail_payload(
+            asset_id,
+            registry_repo.list_skills(),
+            registry_repo.list_mcps(),
+            registry_repo.list_governance_tasks(),
+            registry_repo.list_release_activities(),
+        )
+        return {"asset": next_detail["asset"], "result": result}
 
     @app.get("/api/admin/governance/activities")
     def list_governance_activities():
